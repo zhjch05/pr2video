@@ -8,8 +8,9 @@ reads the change, gets the app running, picks the screens and writes what to say
 everything that has to come out the same every time: the sandbox, the recording, validation, the
 voice and the video. No account and no API key: every voice is free and runs on your machine.
 
-> **Status: early.** The sandbox, the tour format, narration, the player and the HTML/MP4 renderer
-> work today. Recording scenes is next; see [docs/design.md](docs/design.md).
+> **Status: early.** Every stage works end to end (sandbox, recording, tour, narration, HTML and MP4)
+> and has been run on small apps; it has not yet been tried on many real projects. See
+> [docs/design.md](docs/design.md).
 
 ## Install
 
@@ -56,6 +57,10 @@ pr2video sandbox exec [--record] -- <command>        Run inside the sandbox
 pr2video sandbox start <name> --port <n> -- <cmd>    Start a server and wait until it answers
 pr2video sandbox replay                              Re-run the recorded setup on the base commit
 pr2video sandbox ps | logs | stop | journal | status | ls | down
+
+pr2video scenes check [<scenes.json>]                Validate the scenes to film
+pr2video record [--side head|base] [--only <scene>]  Record them in the sandbox's browser (rrweb)
+pr2video tour draft                                  A first tour.json from the head's recordings
 ```
 
 ## The sandbox

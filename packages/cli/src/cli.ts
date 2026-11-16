@@ -22,6 +22,13 @@ import {
 
 import { buildHtml } from "./assemble.ts"
 import { importBetterReview } from "./import.ts"
+import {
+  RECORD_HELP,
+  type RecordFlags,
+  recordCommand,
+  scenesCheck,
+  tourDraft,
+} from "./record-commands.ts"
 import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
 import { renderVideo } from "./video.ts"
 
@@ -40,6 +47,8 @@ Usage:
 
 ${SANDBOX_HELP}
 
+${RECORD_HELP}
+
 Voice options:
   --voice <id>      ${VOICE_IDS.join(" | ")} | auto (default: auto, the best one available)
   --speaker <name>  The voice's own speaker (say -v name, kokoro voice id, espeak voice)
@@ -51,19 +60,20 @@ Environment:
   PR2VIDEO_CACHE    Where downloaded voice models are cached (default ~/.cache/pr2video)
 `
 
-type Flags = SandboxFlags & {
-  json?: boolean
-  voice?: string
-  speaker?: string
-  model?: string
-  output?: string
-  vtt?: string
-  html?: string
-  mp4?: string
-  fps?: string
-  height?: string
-  help?: boolean
-}
+type Flags = SandboxFlags &
+  RecordFlags & {
+    json?: boolean
+    voice?: string
+    speaker?: string
+    model?: string
+    output?: string
+    vtt?: string
+    html?: string
+    mp4?: string
+    fps?: string
+    height?: string
+    help?: boolean
+  }
 
 function fail(
   message: string,
@@ -116,6 +126,9 @@ async function main() {
       output: { type: "string", short: "o" },
       vtt: { type: "string" },
       run: { type: "string" },
+      side: { type: "string" },
+      scenes: { type: "string" },
+      only: { type: "string" },
       cwd: { type: "string" },
       record: { type: "boolean" },
       timeout: { type: "string" },
@@ -195,6 +208,10 @@ async function main() {
     return
   }
 
+  if (command === "tour" && rest[0] === "draft") {
+    process.exit(await tourDraft(flags))
+  }
+
   if (command === "tour") {
     const [sub, tourPath] = rest
     if (!tourPath || (sub !== "check" && sub !== "timeline"))
@@ -244,6 +261,15 @@ async function main() {
       `total ${(timeline.totalMs / 1000).toFixed(1)}s${flags.vtt ? `, captions in ${flags.vtt}` : ""}`,
     )
     return
+  }
+
+  if (command === "scenes") {
+    if (rest[0] !== "check") fail("usage: pr2video scenes check [<scenes.json>]", flags.json)
+    process.exit(await scenesCheck(rest.slice(1), flags))
+  }
+
+  if (command === "record") {
+    process.exit(await recordCommand(flags))
   }
 
   if (command === "sandbox") {

@@ -9,7 +9,8 @@
 #     Redis, its own docker compose file - run inside the sandbox, so its
 #     recipes see localhost as they would anywhere, and nothing reaches the
 #     host's Docker. Needs --privileged; the entrypoint starts dockerd.
-#   - Chromium for Playwright at a fixed path, for the recorder.
+#   - Chromium for Playwright at a fixed path, and Playwright + rrweb in
+#     /opt/pr2video, for the recorder.
 #   - The tools an agent reaches for unprompted: git, ripgrep, psql, python,
 #     jq, curl, lsof.
 FROM node:24-bookworm
@@ -36,6 +37,15 @@ RUN corepack enable \
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx -y playwright@1.63.0 install --with-deps chromium \
   && rm -rf /root/.npm /var/lib/apt/lists/*
+
+# The recorder's runtime: Playwright (driving the Chromium above) and rrweb.
+# The recorder script itself is copied in for each recording, so changing it
+# never rebuilds this image.
+RUN mkdir -p /opt/pr2video \
+  && cd /opt/pr2video \
+  && npm init -y > /dev/null \
+  && npm install --no-audit --no-fund playwright@1.63.0 rrweb@2.1.6 \
+  && rm -rf /root/.npm
 
 COPY entrypoint.sh /usr/local/bin/pr2video-entrypoint
 RUN chmod +x /usr/local/bin/pr2video-entrypoint

@@ -29,14 +29,31 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 
    Record only the steps that set the app up, so `pr2video sandbox replay` can rebuild the base
    commit from them. Explore without `--record`.
-3. **Choose 3-6 scenes.** A scene is a place in the app plus the state that shows the change, the
-   role that sees it, at most 5 actions to get there, and at most 6 checkpoints to stop on.
-   *Not built yet* (`pr2video scenes check`, `pr2video record`).
-4. **Write the tour** (`tour.json`): which checkpoints to show, in what order, a caption for each,
-   where to zoom and what to mark. See [reference/tour.md](reference/tour.md) for the format and the
-   rules for captions. Then:
+3. **Write the scenes** (`.pr2video/<run>/scenes.json`): 1-6 places in the app that show the change,
+   each with a start URL, a few steps to get there and checkpoints to stop on, with captions. See
+   [reference/scenes.md](reference/scenes.md). Find button names, labels and routes in the code;
+   check a page with `pr2video sandbox exec -- curl -s http://localhost:<port>/<path>` if unsure.
 
    ```bash
+   pr2video scenes check
+   pr2video record --side head          # in the sandbox's browser; screenshots in recordings/head/
+   ```
+
+   Look at each checkpoint's screenshot (`recordings/head/<scene>/<checkpoint>.png`). A scene that
+   stopped says where and why in `result.json` (with `stopped.png`): fix the step and record it
+   again with `--only <scene>`. Then record the base, to compare:
+
+   ```bash
+   pr2video sandbox replay              # the recorded setup, on the base commit
+   pr2video record --side base          # the same scenes; stopping early on the base is expected
+   ```
+
+4. **Write the tour.** Start from a draft of what the head recorded, then edit it: order, captions
+   (check them against the screenshots), and mark tones - compare the head and base screenshots to
+   tell `added` from `changed`. See [reference/tour.md](reference/tour.md).
+
+   ```bash
+   pr2video tour draft                  # .pr2video/<run>/tour.json
    pr2video tour check .pr2video/<run>/tour.json
    ```
 

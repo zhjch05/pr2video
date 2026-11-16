@@ -24,6 +24,8 @@ tool cannot enforce on someone else's model.
 - `@pr2video/voice`: free local voices (kokoro, say, piper, espeak) and tour narration.
 - `@pr2video/player`: the player (vanilla TypeScript + rrweb, bundled into one script) and the
   self-contained page around it; `frame.ts` is the pure frame state both modes draw.
+- `@pr2video/recorder`: the scenes format and check, the recorder that runs inside the sandbox
+  (bundled to one `record.mjs`; Playwright and rrweb come from the image), and `tour draft`.
 - `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
 - `plugin/`: the Claude Code plugin: the skill, its references, the `/pr2video` command.
 
@@ -72,3 +74,22 @@ deterministic: no dropped frames, full quality, and identical to the HTML tour.
 - The mouse tail is off in render mode: rrweb draws it on the wall clock.
 - `waitUntil: "domcontentloaded"`: a recording's own stylesheets and fonts point at the recorded app's
   origin, which is gone, and `load` can wait on them for a long time.
+
+## Recording
+
+The agent writes `scenes.json`: per scene a start URL, steps from a closed vocabulary (goto, click,
+hover, fill, select, check, press, waitFor, wait, scrollTo) with semantic locators, and checkpoints
+with a caption, a focus and marks. No code, so the same scene runs on the head and the base.
+
+- `pr2video record` copies `record.mjs` and the scenes into the sandbox (`/opt/pr2video`, where the
+  image installed Playwright and rrweb), runs it, and copies `/tmp/pr2video-out/<side>` back to
+  `.pr2video/<run>/recordings/<side>/`. Changing the recorder never rebuilds the image.
+- Roles sign in once each in an unrecorded context; their storage state seeds their scenes.
+- rrweb starts by `addInitScript` on the app's origin only (it crashes on about:blank), inlines
+  stylesheets, images and fonts, and streams events through an exposed binding.
+- A checkpoint: settle, centre the focus, measure focus and marks (box + rrweb mirror id), flush,
+  screenshot, then keep recording 700 ms. Times are anchored to the first event (`atMs`, `shotMs`).
+- On the head a missing focus stops the scene (it is on the wrong page); on the base it is only
+  listed as missing. A failed step ends the scene with `stopped.png` and the error.
+- `tour draft` makes one tour scene per checkpoint, each a window of its recording from the
+  previous checkpoint's screenshot to the next checkpoint.

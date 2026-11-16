@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "title": "Dark mode switch in Settings",
+  "summary": "Settings gains a Dark mode switch that themes every page and confirms the change.",
+  "baseUrl": "http://localhost:4173",
+  "scenes": [
+    {
+      "id": "dark-mode",
+      "title": "Settings has a dark mode switch",
+      "url": "/index.html",
+      "steps": [
+        { "click": { "role": "link", "name": "Settings" } },
+        {
+          "checkpoint": "switch",
+          "caption": "Settings now has a Dark mode switch, under Email notifications.",
+          "focus": { "role": "switch", "name": "Dark mode" },
+          "zoom": 2,
+          "marks": [
+            { "locator": { "role": "switch", "name": "Dark mode" }, "tone": "added", "label": null }
+          ]
+        },
+        { "click": { "role": "switch", "name": "Dark mode" } },
+        {
+          "checkpoint": "on",
+          "caption": "Turning it on switches the page to a dark theme and confirms with a \"Dark mode on\" notice.",
+          "marks": [
+            { "locator": { "text": "Dark mode on" }, "tone": "added", "label": "Confirmation" }
+          ]
+        }
+      ]
+    }
+  ]
+}

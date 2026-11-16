@@ -1,0 +1,66 @@
+{
+  "scene": "dark-mode",
+  "side": "head",
+  "status": "shown",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "durationMs": 3224,
+  "checkpoints": [
+    {
+      "checkpoint": "switch",
+      "url": "http://localhost:4173/settings.html",
+      "focus": {
+        "box": {
+          "x": 948,
+          "y": 322,
+          "width": 52,
+          "height": 28
+        },
+        "node": 39
+      },
+      "marks": [
+        {
+          "box": {
+            "x": 948,
+            "y": 322,
+            "width": 52,
+            "height": 28
+          },
+          "node": 39,
+          "tone": "added",
+          "label": null
+        }
+      ],
+      "missing": [],
+      "screenshot": "switch.png",
+      "atMs": 2444,
+      "shotMs": 2453
+    },
+    {
+      "checkpoint": "on",
+      "url": "http://localhost:4173/settings.html",
+      "focus": null,
+      "marks": [
+        {
+          "box": {
+            "x": 1111,
+            "y": 732,
+            "width": 145,
+            "height": 44
+          },
+          "node": 45,
+          "tone": "added",
+          "label": "Confirmation"
+        }
+      ],
+      "missing": [],
+      "screenshot": "on.png",
+      "atMs": 3731,
+      "shotMs": 3741
+    }
+  ],
+  "error": null,
+  "events": "events.json"
+}
