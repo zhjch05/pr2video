@@ -14,6 +14,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { narrationOffsets, tourTimeline } from "@pr2video/tour"
+import { importInstalled } from "@pr2video/voice"
 
 import { buildHtml } from "./assemble.ts"
 
@@ -91,12 +92,11 @@ async function openTour(page: import("playwright").Page, htmlPath: string): Prom
 }
 
 async function launchChromium() {
-  let playwright: typeof import("playwright")
-  try {
-    playwright = await import("playwright")
-  } catch {
-    throw new Error("rendering an MP4 needs Playwright: npm install playwright")
-  }
+  const playwright = await importInstalled<typeof import("playwright")>("playwright")
+  if (!playwright)
+    throw new Error(
+      "rendering needs Playwright and its Chromium: npm install -g playwright && npx playwright install chromium",
+    )
   try {
     return await playwright.chromium.launch({ headless: true })
   } catch (error) {

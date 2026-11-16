@@ -12,7 +12,7 @@
     "test": "pnpm --filter @pr2video/player run build && pnpm -r run test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "pr2video": "node --conditions=development packages/cli/src/cli.ts"
+    "pr2video": "node --conditions=pr2video-source packages/cli/src/cli.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

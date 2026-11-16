@@ -1,12 +1,22 @@
 {
   "name": "@pr2video/player",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The pr2video tour player: replays the recordings with zoom, marks, captions and narration, interactively or frame by frame for video.",
+  "keywords": [
+    "pull-request",
+    "video",
+    "rrweb",
+    "tour",
+    "code-review"
+  ],
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": {
-      "development": "./src/index.ts",
+      "pr2video-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
@@ -14,9 +24,11 @@
     "./bundle.css": "./dist/bundle/player.css"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/bundle.ts",
     "check-types": "tsc --noEmit",

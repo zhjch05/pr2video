@@ -1,20 +1,32 @@
 {
   "name": "@pr2video/tour",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The pr2video tour format and its timeline: pacing, zoom and captions for narrated rrweb tours.",
+  "keywords": [
+    "pull-request",
+    "video",
+    "rrweb",
+    "tour",
+    "code-review"
+  ],
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": {
-      "development": "./src/index.ts",
+      "pr2video-source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",

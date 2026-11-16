@@ -19,7 +19,7 @@ await build({
   platform: "browser",
   target: "es2022",
   minify: true,
-  conditions: ["development"],
+  conditions: ["pr2video-source"],
   legalComments: "eof",
   outfile: `${out}/player.js`,
   logLevel: "warning",

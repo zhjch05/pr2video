@@ -23,8 +23,9 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
 - **Voices are free and local.** No voice may need an account or a key. `kokoro-js` is an optional
   peer, loaded with a dynamic import, so the CLI installs light.
 - **Erasable TypeScript only** (`erasableSyntaxOnly`): the CLI runs from source with
-  `node --conditions=development`, which only strips types.
-- Workspace packages export `development` → `src` first, so tests and the dev CLI use the source;
+  `node --conditions=pr2video-source`, which only strips types.
+- Workspace packages export `pr2video-source` → `src` first (a condition of our own: bundlers
+  resolve `development`, and the published packages ship no `src`), so tests and the dev CLI use the source;
   the published build uses `dist`.
 
 ## Before calling something done

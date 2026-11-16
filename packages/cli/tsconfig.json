@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "customConditions": ["development"], "noEmit": true },
+  "compilerOptions": { "customConditions": ["pr2video-source"], "noEmit": true },
   "include": ["src", "test", "vitest.config.ts"]
 }

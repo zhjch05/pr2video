@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config"
 
 export default defineConfig({
-  resolve: { conditions: ["development"] },
-  ssr: { resolve: { conditions: ["development"] } },
+  resolve: { conditions: ["pr2video-source"] },
+  ssr: { resolve: { conditions: ["pr2video-source"] } },
 })

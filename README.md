@@ -8,8 +8,9 @@ reads the change, gets the app running, picks the screens and writes what to say
 everything that has to come out the same every time: the sandbox, the recording, validation, the
 voice and the video. No account and no API key: every voice is free and runs on your machine.
 
-> **Status: early.** Every stage works end to end (sandbox, recording, tour, narration, HTML and MP4)
-> and has been run on small apps; it has not yet been tried on many real projects. See
+> **Status: early.** Every stage works end to end (sandbox, recording, tour, narration, HTML and MP4).
+> An agent with only the skill has made tours of three real open-source pull requests (a Vue app on
+> phone widths, a Next.js app with Postgres, a Go + React app with before/after dialogs). See
 > [docs/design.md](docs/design.md).
 
 ## Install
@@ -19,10 +20,10 @@ voice and the video. No account and no API key: every voice is free and runs on 
 /plugin marketplace add <owner>/pr2video
 /plugin install pr2video@pr2video
 
-# The CLI (Node 24+)
+# The CLI (Node 24+, and Docker running for the sandbox)
 npm install -g pr2video
 npm install -g kokoro-js                                  # optional: the most natural free voice
-npm install -g playwright && npx playwright install chromium   # for MP4 (plus ffmpeg on PATH)
+npm install -g playwright && npx playwright install chromium   # for MP4 and stills (plus ffmpeg on PATH)
 ```
 
 Then, in Claude Code: `/pr2video https://github.com/acme/shop/pull/12`.
@@ -33,7 +34,7 @@ All free and local. `--voice auto` (the default) picks the best one available.
 
 | Voice | Quality | Needs |
 |---|---|---|
-| `kokoro` | Natural (Kokoro-82M, Apache-2.0) | `npm i kokoro-js`; ~90 MB model downloaded on first use to `~/.cache/pr2video` |
+| `kokoro` | Natural (Kokoro-82M, Apache-2.0) | `npm i -g kokoro-js`; ~90 MB model downloaded on first use to `~/.cache/pr2video` |
 | `say` | Good | macOS only, nothing to install |
 | `piper` | Natural | `pipx install piper-tts` and a voice model (`--model` or `PIPER_MODEL`) |
 | `espeak` | Robotic | `brew install espeak-ng` / `apt install espeak-ng` |

@@ -17,6 +17,7 @@ import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { importInstalled, resolveInstalled } from "./installed.ts"
 import { onPath, runOrThrow } from "./run.ts"
 import { encodeWav } from "./wav.ts"
 
@@ -139,13 +140,7 @@ let kokoroModel: Promise<KokoroTTS> | null = null
  * ONNX runtime (~100 MB), which a captions-only user should not pay for.
  */
 async function importKokoro(): Promise<KokoroModule | null> {
-  try {
-    // A variable specifier, so a build never insists the package be installed.
-    const name = "kokoro-js"
-    return (await import(name)) as KokoroModule
-  } catch {
-    return null
-  }
+  return importInstalled<KokoroModule>("kokoro-js")
 }
 
 /**
@@ -156,7 +151,9 @@ async function importKokoro(): Promise<KokoroModule | null> {
  */
 async function moveModelCache(): Promise<void> {
   try {
-    const kokoroFile = fileURLToPath(import.meta.resolve("kokoro-js"))
+    const kokoro = resolveInstalled("kokoro-js")
+    if (!kokoro) return
+    const kokoroFile = fileURLToPath(kokoro)
     const cjs = createRequire(kokoroFile).resolve("@huggingface/transformers")
     const esm = pathToFileURL(cjs.replace(/\.cjs$/, ".mjs")).href
     const transformers = (await import(esm)) as { env?: { cacheDir?: string } }
@@ -169,7 +166,7 @@ async function moveModelCache(): Promise<void> {
 async function loadKokoro(): Promise<KokoroTTS> {
   kokoroModel ??= (async () => {
     const kokoro = await importKokoro()
-    if (!kokoro) throw new Error("kokoro-js is not installed: npm install kokoro-js")
+    if (!kokoro) throw new Error("kokoro-js is not installed: npm install -g kokoro-js")
     await moveModelCache()
     return kokoro.KokoroTTS.from_pretrained(KOKORO_MODEL, { dtype: "q8", device: "cpu" })
   })()
@@ -186,7 +183,7 @@ const kokoro: Voice = {
   description: "Kokoro-82M neural voice, local (most natural; ~90 MB model on first use)",
   async available() {
     if (await importKokoro()) return { ok: true }
-    return { ok: false, reason: "kokoro-js is not installed", install: "npm install kokoro-js" }
+    return { ok: false, reason: "kokoro-js is not installed", install: "npm install -g kokoro-js" }
   },
   async synthesize(text, options) {
     const tts = await loadKokoro()

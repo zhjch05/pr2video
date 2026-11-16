@@ -11,7 +11,11 @@ const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url))
 
 async function pr2video(...args: Array<string>): Promise<{ code: number; json: unknown }> {
   try {
-    const { stdout } = await promisify(execFile)("node", ["--conditions=development", cli, ...args])
+    const { stdout } = await promisify(execFile)("node", [
+      "--conditions=pr2video-source",
+      cli,
+      ...args,
+    ])
     return { code: 0, json: JSON.parse(stdout) }
   } catch (error) {
     const failed = error as { code: number; stdout: string }
