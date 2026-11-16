@@ -75,3 +75,13 @@ describe("pr2video render", () => {
     120_000,
   )
 })
+
+describe("shellCommand", () => {
+  it("takes one argument as written and quotes an argv", async () => {
+    const { shellCommand } = await import("../src/sandbox-commands.ts")
+    expect(shellCommand(["npm ci && npm run build"])).toBe("npm ci && npm run build")
+    expect(shellCommand(["sh", "-c", "echo one; echo two"])).toBe("sh -c 'echo one; echo two'")
+    expect(shellCommand(["echo", "it's"])).toBe("echo 'it'\\''s'")
+    expect(shellCommand(["node", "server.js", "--port=3001"])).toBe("node server.js --port=3001")
+  })
+})

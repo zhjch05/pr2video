@@ -5,10 +5,17 @@
  * command here does the same thing every time, reads and writes files, and
  * answers JSON with --json so an agent can act on it.
  */
-import { readFile, writeFile } from "node:fs/promises"
+import { access, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { parseArgs } from "node:util"
-import { screenshotMoments, tourProblems, tourSchema, tourTimeline, toVtt } from "@pr2video/tour"
+import {
+  screenshotMoments,
+  type Tour,
+  tourProblems,
+  tourSchema,
+  tourTimeline,
+  toVtt,
+} from "@pr2video/tour"
 import {
   defaultVoice,
   isVoiceId,
@@ -115,6 +122,30 @@ async function shotsFor(tourPath: string, events: ReadonlyArray<string>) {
   return shots
 }
 
+/** The files a tour plays that are not there: a recording re-made or moved since the tour was written. */
+async function missingFiles(
+  tourPath: string,
+  tour: Tour,
+): Promise<Array<{ path: string; message: string }>> {
+  const out: Array<{ path: string; message: string }> = []
+  for (const [i, scene] of tour.scenes.entries())
+    for (const [key, file] of [
+      ["events", scene.events],
+      ["audio", scene.audio],
+    ] as const) {
+      if (!file) continue
+      try {
+        await access(join(dirname(tourPath), file))
+      } catch {
+        out.push({
+          path: `scenes.${i}.${key}`,
+          message: `${file} does not exist (relative to the tour file)`,
+        })
+      }
+    }
+  return out
+}
+
 async function main() {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -125,6 +156,7 @@ async function main() {
       model: { type: "string" },
       output: { type: "string", short: "o" },
       vtt: { type: "string" },
+      path: { type: "string" },
       run: { type: "string" },
       side: { type: "string" },
       scenes: { type: "string" },
@@ -149,6 +181,10 @@ async function main() {
   const [command, ...rest] = positionals
   const options: VoiceOptions = { speaker: flags.speaker, model: flags.model }
 
+  if (flags.help && (command === "sandbox" || command === "record" || command === "scenes")) {
+    console.log(command === "sandbox" ? SANDBOX_HELP : RECORD_HELP)
+    return
+  }
   if (!command || flags.help || command === "help") {
     console.log(HELP)
     return
@@ -218,6 +254,7 @@ async function main() {
       fail("usage: pr2video tour check|timeline <tour.json>", flags.json)
     const input = await readTour(tourPath, flags.json)
     const problems = tourProblems(input)
+    if (!problems.length) problems.push(...(await missingFiles(tourPath, tourSchema.parse(input))))
     if (sub === "check") {
       if (flags.json) console.log(JSON.stringify({ ok: problems.length === 0, problems }, null, 2))
       else if (!problems.length) console.log("tour ok")

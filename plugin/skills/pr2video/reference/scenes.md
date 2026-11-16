@@ -35,6 +35,7 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
     "title": "Settings has a dark mode switch",
     "role": "admin",                             // optional, a key of roles
     "url": "/",                                  // relative to baseUrl
+    "viewport": { "width": 375, "height": 812 },  // optional: this scene's size (a phone)
     "steps": [
       { "click": { "role": "link", "name": "Settings" } },
       { "checkpoint": "switch",

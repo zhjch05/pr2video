@@ -39,6 +39,7 @@ export const journalEntrySchema = z.discriminatedUnion("kind", [
     command: z.string(),
     cwd: z.string(),
     port: z.number().nullable(),
+    path: z.string().nullable().optional(),
     at: z.string(),
   }),
 ])

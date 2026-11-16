@@ -40,7 +40,7 @@ marks what changed, and holds while the caption is read aloud.
     {
       "id": "s1-cart",
       "label": "S1",
-      "events": "recordings/s1.json",               // rrweb events, relative to tour.json
+      "events": "recordings/head/cart/events.json", // rrweb events, relative to tour.json
       "viewport": { "width": 1280, "height": 800 },
       "startMs": 0, "endMs": 9000, "atMs": 6200,    // the window and the checkpoint, in recording ms
       "shotMs": 6350,                               // when the checkpoint's screenshot was taken, if known
@@ -55,4 +55,7 @@ marks what changed, and holds while the caption is read aloud.
 }
 ```
 
-`pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
+`pr2video tour draft` writes all of this from the head's recordings; you edit captions, order and
+marks. `pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
+`pr2video tour check` also checks every recording and clip it names still exists: after
+re-recording, draft again rather than keeping old timings.

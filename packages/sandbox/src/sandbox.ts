@@ -365,8 +365,14 @@ export type WaitResult = { ok: boolean; ms: number; status: string }
 export async function waitPort(
   record: SandboxRecord,
   port: number,
-  options: { timeoutMs?: number | undefined; name?: string | undefined } = {},
+  options: {
+    timeoutMs?: number | undefined
+    name?: string | undefined
+    path?: string | undefined
+  } = {},
 ): Promise<WaitResult> {
+  const path = options.path ?? "/"
+  if (!/^\/[\w\-./?=&%~]*$/.test(path)) throw new Error(`--path must start with / (got "${path}")`)
   const timeoutS = Math.ceil((options.timeoutMs ?? 180_000) / 1_000)
   const pidCheck = options.name
     ? `if ! kill -0 "$(cat /run/pr2video/${validName(options.name)}.pid 2>/dev/null)" 2>/dev/null; then echo "process ${options.name} exited"; exit 2; fi`
@@ -375,8 +381,8 @@ export async function waitPort(
   const result = await inside(
     record.container,
     `for i in $(seq ${timeoutS}); do
-       code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' http://127.0.0.1:${port}/ 2>/dev/null)
-       if [ -n "$code" ] && [ "$code" != "000" ]; then echo "HTTP $code"; exit 0; fi
+       code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' 'http://127.0.0.1:${port}${path}' 2>/dev/null)
+       if [ -n "$code" ] && [ "$code" != "000" ] && [ "$code" -lt 500 ]; then echo "HTTP $code on ${path}"; exit 0; fi
        ${pidCheck}
        sleep 1
      done
@@ -394,6 +400,8 @@ export async function start(
   options: {
     cwd?: string | undefined
     port?: number | undefined
+    /** What to ask for on `port` while waiting; `/` by default. */
+    path?: string | undefined
     record?: boolean | undefined
     timeoutMs?: number | undefined
   } = {},
@@ -416,11 +424,16 @@ export async function start(
       command,
       cwd,
       port: options.port ?? null,
+      path: options.path ?? null,
       at: new Date().toISOString(),
     })
   const pid = Number.parseInt(launched.stdout.trim(), 10)
   const wait = options.port
-    ? await waitPort(record, options.port, { timeoutMs: options.timeoutMs, name })
+    ? await waitPort(record, options.port, {
+        timeoutMs: options.timeoutMs,
+        name,
+        path: options.path,
+      })
     : null
   return { pid, wait }
 }
@@ -473,18 +486,22 @@ export async function logs(record: SandboxRecord, name: string, lines = 100): Pr
 export type ReplayStep = { entry: JournalEntry; ok: boolean; detail: string; log?: string }
 
 /**
- * Runs the journal's recorded steps again on the base checkout: every head
- * process is stopped first, each step is moved from `/work/head` to
- * `/work/base`, and the replay stops at the first step that fails.
+ * Runs the journal's recorded steps again: every background process is
+ * stopped first, and the replay stops at the first step that fails. On the
+ * base (the default) each step is moved from `/work/head` to `/work/base`; on
+ * the head it runs as recorded - the way back after recording the base.
  */
 export async function replay(
   record: SandboxRecord,
   options: {
+    side?: "head" | "base" | undefined
     onStep?: ((step: ReplayStep) => void) | undefined
     onOutput?: ((chunk: string) => void) | undefined
   } = {},
 ): Promise<{ ok: boolean; steps: Array<ReplayStep> }> {
-  if (!record.base)
+  const side = options.side ?? "base"
+  const base = record.base
+  if (side === "base" && !base)
     throw new Error("this sandbox has no base checkout (it was started with --no-base)")
   const journal = await readJournal(record.repo, record.run)
   if (!journal.length)
@@ -493,7 +510,7 @@ export async function replay(
     if (process.running) await stop(record, process.name)
   const steps: Array<ReplayStep> = []
   for (const original of journal) {
-    const entry = rebase(original, record.head.dir, record.base.dir)
+    const entry = side === "base" && base ? rebase(original, record.head.dir, base.dir) : original
     let step: ReplayStep
     if (entry.kind === "exec") {
       const result = await exec(record, entry.command, {
@@ -513,6 +530,7 @@ export async function replay(
       const started = await start(record, entry.name, entry.command, {
         cwd: entry.cwd,
         port: entry.port ?? undefined,
+        path: entry.path ?? undefined,
       })
       step = {
         entry,
@@ -525,6 +543,14 @@ export async function replay(
     if (!step.ok) return { ok: false, steps }
   }
   return { ok: true, steps }
+}
+
+/** Copies a host file or folder into the sandbox, creating the folder it goes in. */
+export async function copyIn(record: SandboxRecord, from: string, to: string): Promise<void> {
+  if (!to.startsWith("/")) throw new Error(`the sandbox path must be absolute (got "${to}")`)
+  const parent = to.endsWith("/") ? to : to.slice(0, to.lastIndexOf("/")) || "/"
+  await inside(record.container, `mkdir -p '${parent.replace(/'/g, "")}'`)
+  await dockerOrThrow(["cp", from, `${record.container}:${to}`])
 }
 
 export async function down(record: SandboxRecord): Promise<void> {

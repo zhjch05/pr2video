@@ -62,7 +62,9 @@ body {
   color: var(--p2v-muted);
 }
 
+/* Captions size to the frame, so a narrow phone scene in a wide tour keeps readable captions. */
 .p2v-frame {
+  container-type: size;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -76,7 +78,6 @@ body {
 .p2v-stage {
   position: relative;
   overflow: hidden;
-  container-type: inline-size;
   background: #fff;
 }
 

@@ -42,6 +42,11 @@ function ffmpegEncoder(args: ReadonlyArray<string>): Encoder {
   child.stderr.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString("utf8")).slice(-4_000)
   })
+  // One error listener for the whole encode, not one per frame.
+  let broken: Error | null = null
+  child.stdin.on("error", (error) => {
+    broken = error
+  })
   const exited = new Promise<void>((done, fail) => {
     child.on("error", fail)
     child.on("close", (code) =>
@@ -49,12 +54,13 @@ function ffmpegEncoder(args: ReadonlyArray<string>): Encoder {
     )
   })
   return {
-    write: (frame) =>
-      new Promise((done, fail) => {
+    write: (frame) => {
+      if (broken) return Promise.reject(broken)
+      return new Promise((done) => {
         if (child.stdin.write(frame)) done()
         else child.stdin.once("drain", done)
-        child.stdin.once("error", fail)
-      }),
+      })
+    },
     finish: async () => {
       child.stdin.end()
       await exited

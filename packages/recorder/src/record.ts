@@ -211,8 +211,9 @@ async function recordScene(
   const dir = join(out, scene.id)
   await mkdir(dir, { recursive: true })
   const storageState = scene.role ? auth.get(scene.role) : undefined
+  const viewport = scene.viewport ?? file.viewport
   const context: BrowserContext = await browser.newContext({
-    viewport: file.viewport,
+    viewport,
     ...(storageState ? { storageState } : {}),
   })
   const events: Array<{ timestamp: number }> = []
@@ -282,7 +283,7 @@ async function recordScene(
     scene: scene.id,
     side,
     status: checkpoints.length === total ? "shown" : checkpoints.length ? "partly" : "not-reached",
-    viewport: file.viewport,
+    viewport,
     durationMs: end - start,
     checkpoints,
     error,

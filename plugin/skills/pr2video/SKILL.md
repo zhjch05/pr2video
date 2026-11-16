@@ -39,13 +39,16 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    pr2video record --side head          # in the sandbox's browser; screenshots in recordings/head/
    ```
 
-   Look at each checkpoint's screenshot (`recordings/head/<scene>/<checkpoint>.png`). A scene that
-   stopped says where and why in `result.json` (with `stopped.png`): fix the step and record it
-   again with `--only <scene>`. Then record the base, to compare:
+   Pick the browser size the change needs: a change for narrow screens (CSS breakpoints, mobile
+   layout) needs a phone viewport. Give one scene its own `viewport` to show the same screen at
+   several widths. Look at each checkpoint's screenshot (`recordings/head/<scene>/<checkpoint>.png`).
+   A scene that stopped says where and why in `result.json` (with `stopped.png`): fix the step and
+   record it again with `--only <scene>`; other scenes' recordings are kept. Then record the base:
 
    ```bash
    pr2video sandbox replay              # the recorded setup, on the base commit
    pr2video record --side base          # the same scenes; stopping early on the base is expected
+   pr2video sandbox replay --side head  # back to the head, if you need to re-record a head scene
    ```
 
 4. **Write the tour.** Start from a draft of what the head recorded, then edit it: order, captions
@@ -74,7 +77,8 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    pr2video render .pr2video/<run>/tour.json --mp4 .pr2video/<run>/tour.mp4   # needs ffmpeg + Chromium
    ```
 
-   The MP4 takes a few minutes: run it in the background. Tell the user where the files are, the
+   The MP4 takes a few minutes: run it in the background. Its shape follows the first scene's
+   viewport (a phone viewport gives a portrait video). Tell the user where the files are, the
    tour's length, and any scene you could not reach and why.
 
 ## Rules

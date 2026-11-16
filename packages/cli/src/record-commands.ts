@@ -2,7 +2,7 @@
  * `pr2video scenes check`, `pr2video record` and `pr2video tour draft`: from
  * the agent's scenes file to recordings of the head and base, to a first tour.
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -97,9 +97,23 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
     onOutput: flags.json ? undefined : (chunk) => process.stdout.write(chunk),
   })
   const local = join(runDir(record.repo, record.run), "recordings", side)
-  await rm(local, { recursive: true, force: true })
-  await mkdir(dirname(local), { recursive: true })
-  const copied = await docker(["cp", `${record.container}:${out}`, local])
+  const incoming = join(runDir(record.repo, record.run), "recordings", `.incoming-${side}`)
+  await rm(incoming, { recursive: true, force: true })
+  await mkdir(local, { recursive: true })
+  const copied = await docker(["cp", `${record.container}:${out}`, incoming])
+  // Only the scenes just recorded are replaced: re-recording one with --only
+  // (or from another scenes file) keeps every other scene's recording.
+  const recorded: Array<string> = []
+  if (copied.code === 0) {
+    for (const entry of await readdir(incoming, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      await rm(join(local, entry.name), { recursive: true, force: true })
+      await rename(join(incoming, entry.name), join(local, entry.name))
+      recorded.push(entry.name)
+    }
+    await rm(incoming, { recursive: true, force: true })
+    await writeSummary(local, side)
+  }
   if (result.exitCode !== 0 && copied.code !== 0) {
     if (flags.json)
       console.log(
@@ -112,10 +126,7 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
     else console.error(`pr2video: the recorder failed (exit ${result.exitCode}); see ${result.log}`)
     return 1
   }
-  const summary = (await readJson(join(local, "summary.json")).catch(() => null)) as {
-    scenes: Array<Pick<SceneResult, "scene" | "status" | "error">>
-  } | null
-  const scenes = summary?.scenes ?? []
+  const scenes = (await sceneResults(local)).filter((r) => recorded.includes(r.scene))
   const ok = result.exitCode === 0 && scenes.length > 0
   if (flags.json) console.log(JSON.stringify({ ok, side, recordings: local, scenes }, null, 2))
   else {
@@ -124,6 +135,29 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
       console.log(`  ${s.scene}: ${s.status}${s.error ? ` (stopped: ${s.error.message})` : ""}`)
   }
   return ok ? 0 : 1
+}
+
+/** Every scene recorded on a side, from each scene folder's result.json. */
+async function sceneResults(
+  local: string,
+): Promise<Array<Pick<SceneResult, "scene" | "status" | "error">>> {
+  const out: Array<Pick<SceneResult, "scene" | "status" | "error">> = []
+  for (const entry of await readdir(local, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue
+    const result = (await readJson(join(local, entry.name, "result.json")).catch(
+      () => null,
+    )) as SceneResult | null
+    if (result) out.push({ scene: result.scene, status: result.status, error: result.error })
+  }
+  return out
+}
+
+/** `summary.json` lists every scene the side holds, not only the last recording's. */
+async function writeSummary(local: string, side: string): Promise<void> {
+  await writeFile(
+    join(local, "summary.json"),
+    `${JSON.stringify({ side, scenes: await sceneResults(local) }, null, 2)}\n`,
+  )
 }
 
 export async function tourDraft(flags: RecordFlags): Promise<number> {

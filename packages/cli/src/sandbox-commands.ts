@@ -3,6 +3,7 @@
  * Human output streams; `--json` answers one object per command.
  */
 import {
+  copyIn,
   down,
   exec,
   list,
@@ -29,6 +30,8 @@ export type SandboxFlags = {
   port?: string | undefined
   tail?: string | undefined
   name?: string | undefined
+  path?: string | undefined
+  side?: string | undefined
 }
 
 export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull request never runs on your machine):
@@ -36,13 +39,31 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
                                                 Check out head (/work/head) and base (/work/base) in a new sandbox
   pr2video sandbox exec [--cwd <dir>] [--record] [--timeout <s>] -- <command>
                                                 Run a command inside; --record adds it to the setup journal
-  pr2video sandbox start <name> [--port <n>] [--cwd <dir>] [--record] -- <command>
-                                                Start a background process (a server); --port waits until it answers
-  pr2video sandbox wait <port> [--name <process>] [--timeout <s>]
+  pr2video sandbox start <name> [--port <n> [--path <p>]] [--cwd <dir>] [--record] -- <command>
+                                                Start a background process (a server); --port waits until
+                                                <path> (default /) answers with a status below 500
+  pr2video sandbox wait <port> [--path <p>] [--name <process>] [--timeout <s>]
+  pr2video sandbox cp <host path> <sandbox path>  Copy a file or folder in (a seed script, fixtures)
   pr2video sandbox ps | logs <name> [--tail <n>] | stop <name>
   pr2video sandbox journal                      The recorded setup steps
-  pr2video sandbox replay                       Run the recorded steps again on the base commit
+  pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
+  After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
+  argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
   pr2video sandbox status | ls | down`
+
+/**
+ * The command after `--`, as one shell string. One argument is taken as a
+ * shell command as written (`exec -- 'npm ci && npm run build'`). Several are
+ * an argv, each quoted, so `exec -- sh -c 'a; b'` runs exactly that.
+ */
+export function shellCommand(args: ReadonlyArray<string>): string {
+  if (args.length === 1) return (args[0] ?? "").trim()
+  return args.map(shellQuote).join(" ")
+}
+
+export function shellQuote(arg: string): string {
+  return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`
+}
 
 function seconds(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback * 1_000
@@ -91,7 +112,7 @@ export async function sandboxCommand(
       return 0
     }
     case "exec": {
-      const command = rest.join(" ").trim()
+      const command = shellCommand(rest)
       if (!command)
         throw new Error("usage: pr2video sandbox exec [--cwd dir] [--record] -- <command>")
       const record = await resolveRecord(cwd, flags.run)
@@ -111,9 +132,10 @@ export async function sandboxCommand(
         throw new Error("usage: pr2video sandbox start <name> [--port n] [--record] -- <command>")
       const record = await resolveRecord(cwd, flags.run)
       const port = flags.port ? integer(flags.port, "--port") : undefined
-      const result = await start(record, name, command.join(" "), {
+      const result = await start(record, name, shellCommand(command), {
         cwd: flags.cwd,
         port,
+        path: flags.path,
         record: flags.record,
         timeoutMs: seconds(flags.timeout, 180),
       })
@@ -127,11 +149,21 @@ export async function sandboxCommand(
       const record = await resolveRecord(cwd, flags.run)
       const result = await waitPort(record, integer(rest[0], "the port"), {
         name: flags.name,
+        path: flags.path,
         timeoutMs: seconds(flags.timeout, 180),
       })
       answer(result)
       say(result.status)
       return result.ok ? 0 : 1
+    }
+    case "cp": {
+      const [from, to] = rest
+      if (!from || !to) throw new Error("usage: pr2video sandbox cp <host path> <sandbox path>")
+      const record = await resolveRecord(cwd, flags.run)
+      await copyIn(record, from, to)
+      answer({ ok: true, from, to })
+      say(`copied ${from} to ${to}`)
+      return 0
     }
     case "stop": {
       if (!rest[0]) throw new Error("usage: pr2video sandbox stop <name>")
@@ -173,7 +205,10 @@ export async function sandboxCommand(
     }
     case "replay": {
       const record = await resolveRecord(cwd, flags.run)
+      const side = flags.side ?? "base"
+      if (side !== "head" && side !== "base") throw new Error("--side is head or base")
       const result = await replay(record, {
+        side,
         onStep: json
           ? undefined
           : (step) =>

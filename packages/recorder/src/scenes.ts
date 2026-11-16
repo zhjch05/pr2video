@@ -81,6 +81,11 @@ export type Action = z.infer<typeof actionSchema>
 export const stepSchema = z.union([actionSchema, checkpointSchema])
 export type Step = z.infer<typeof stepSchema>
 
+export const viewportSchema = z.object({
+  width: z.number().int().min(320).max(3840),
+  height: z.number().int().min(240).max(2160),
+})
+
 export const sceneSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/, "lowercase letters, digits and -"),
   /** One line on what changed here. */
@@ -89,6 +94,8 @@ export const sceneSchema = z.object({
   role: z.string().optional(),
   /** Where the scene starts, relative to `baseUrl`. */
   url: z.string().min(1),
+  /** This scene's browser size, when it differs from the file's: a phone width for a responsive change. */
+  viewport: viewportSchema.optional(),
   steps: z.array(stepSchema).min(1).max(16),
 })
 export type Scene = z.infer<typeof sceneSchema>
@@ -104,12 +111,7 @@ export const scenesFileSchema = z.object({
   summary: z.string().default(""),
   /** Where the app answers inside the sandbox. */
   baseUrl: z.string().url(),
-  viewport: z
-    .object({
-      width: z.number().int().min(320).max(3840),
-      height: z.number().int().min(240).max(2160),
-    })
-    .default({ width: 1280, height: 800 }),
+  viewport: viewportSchema.default({ width: 1280, height: 800 }),
   roles: z.record(z.string(), roleSchema).default({}),
   scenes: z.array(sceneSchema).min(1).max(8),
 })
