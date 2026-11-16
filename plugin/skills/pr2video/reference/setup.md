@@ -3,7 +3,9 @@
 The sandbox is a Linux container (Debian, Node 24 with corepack, Python 3, git, ripgrep, psql, jq,
 curl) with **its own Docker engine**: `docker run` and `docker compose` work inside it, and their
 published ports are on the sandbox's `localhost`. Chromium for Playwright is installed. The head is
-checked out at `/work/head` and the base at `/work/base`, both detached. The recorder's own
+checked out at `/work/head` and the base at `/work/base`, both detached and without history (a
+project that needs it, for `git describe` say, can `git fetch /src <ref>` inside). Shallow and
+partial clones work: `sandbox up` fetches what they lack on the host first. The recorder's own
 Chromium lives in `/opt/pr2video`, apart from anything the project installs: a project that runs
 `playwright install` cannot break recording. pnpm and npm caches persist
 across runs, and Docker Hub pulls go through a local cache.

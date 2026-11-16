@@ -59,6 +59,10 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
   `cp --record` copies (the file is kept under the run's `files/`). `replay` stops every
   background process, rewrites `/work/head` to `/work/base`, and stops at the first failure. Making
   steps replayable is the agent's job (`plugin/skills/pr2video/reference/setup.md`).
+- `up` fetches only the head and base commits into the sandbox (`--depth 1` from the read-only
+  `/src`). On the host it first deepens a shallow clone until the merge base is there, and fetches a
+  partial clone's missing files of both commits in one batch (`fetch --stdin`, as git's lazy fetch
+  does), since nothing can fetch lazily through the read-only mount.
 - Not yet: the seeded-data cache (tarballs of service data directories).
 
 ## The renderer

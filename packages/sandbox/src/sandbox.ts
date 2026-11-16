@@ -12,7 +12,7 @@
  * Every command the agent runs goes through `exec` or `start`; with `record`
  * it lands in the run's journal, which `replay` runs again on the base commit.
  */
-import { execFile } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { cp, readdir, readFile, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
@@ -128,8 +128,114 @@ export async function repoRoot(cwd: string): Promise<string> {
   }
 }
 
+/**
+ * The remote a partial clone fetches missing files from, or null when the
+ * clone is complete: `remote.<name>.promisor`, or the older
+ * `extensions.partialClone`.
+ */
+async function promisorRemote(repo: string): Promise<string | null> {
+  const promisors = await gitOut(repo, [
+    "config",
+    "--get-regexp",
+    "^remote\\..*\\.promisor$",
+  ]).catch(() => "")
+  for (const line of promisors.split("\n")) {
+    const [key, value] = line.split(/\s+/)
+    if (key && value === "true") return key.slice("remote.".length, -".promisor".length)
+  }
+  return (
+    (await gitOut(repo, ["config", "--get", "extensions.partialclone"]).catch(() => "")) || null
+  )
+}
+
+/** The remote to fetch missing history or objects from: the partial clone's, else origin, else the first. */
+async function fetchRemote(repo: string): Promise<string | null> {
+  const partial = await promisorRemote(repo)
+  if (partial) return partial
+  const remotes = (await gitOut(repo, ["remote"]).catch(() => "")).split("\n").filter(Boolean)
+  return remotes.includes("origin") ? "origin" : (remotes[0] ?? null)
+}
+
+/**
+ * Where `head` left `ref`. In a shallow clone that history may not be here
+ * yet: fetch more of it (the repository's objects only - no ref or working
+ * tree changes) until the two meet.
+ */
+async function mergeBase(repo: string, head: string, ref: string, log: Log): Promise<string> {
+  const find = () => gitOut(repo, ["merge-base", head, ref])
+  try {
+    return await find()
+  } catch (error) {
+    const shallow = (await gitOut(repo, ["rev-parse", "--is-shallow-repository"])) === "true"
+    const remote = shallow ? await fetchRemote(repo) : null
+    if (!remote) throw error
+    for (const depth of ["--deepen=50", "--deepen=500", "--unshallow"]) {
+      log?.(`shallow clone: fetching more history from ${remote} (${depth}) to find the base`)
+      await git("git", ["-C", repo, "fetch", "-q", "--no-tags", depth, remote], {
+        maxBuffer: 64 * 1024 * 1024,
+      })
+      try {
+        return await find()
+      } catch {
+        // deeper still
+      }
+    }
+    throw error
+  }
+}
+
+/**
+ * A partial clone (`--filter=blob:none`) fetches files when they are read,
+ * which the sandbox cannot do through its read-only mount: fetch every file
+ * of `commits` that is missing, in one batch, the way git itself does.
+ */
+async function completeObjects(repo: string, commits: Array<string>, log: Log): Promise<void> {
+  const remote = await promisorRemote(repo)
+  if (!remote) return
+  const { stdout } = await git(
+    "git",
+    ["-C", repo, "rev-list", "--objects", "--no-walk", "--missing=print", ...commits],
+    { maxBuffer: 256 * 1024 * 1024 },
+  )
+  const missing = stdout
+    .split("\n")
+    .filter((line) => line.startsWith("?"))
+    .map((line) => line.slice(1).trim())
+  if (!missing.length) return
+  log?.(`partial clone: fetching ${missing.length} missing files from ${remote}`)
+  await new Promise<void>((done, fail) => {
+    const child = spawn(
+      "git",
+      [
+        "-C",
+        repo,
+        "-c",
+        "fetch.negotiationAlgorithm=noop",
+        "fetch",
+        "-q",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--recurse-submodules=no",
+        "--filter=blob:none",
+        "--stdin",
+        remote,
+      ],
+      { stdio: ["pipe", "ignore", "pipe"] },
+    )
+    let stderr = ""
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8")
+    })
+    child.on("error", fail)
+    child.on("close", (code) =>
+      code === 0 ? done() : fail(new Error(`fetching the missing files failed: ${stderr.trim()}`)),
+    )
+    child.stdin.end(`${missing.join("\n")}\n`)
+  })
+}
+
 /** The commit a pull request's base is: where the head left the default branch. */
-async function defaultBase(repo: string, headSha: string): Promise<string | null> {
+async function defaultBase(repo: string, headSha: string, log: Log): Promise<string | null> {
   const candidates: Array<string> = []
   try {
     candidates.push(await gitOut(repo, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]))
@@ -139,7 +245,8 @@ async function defaultBase(repo: string, headSha: string): Promise<string | null
   candidates.push("origin/main", "origin/master", "main", "master")
   for (const ref of candidates) {
     try {
-      const base = await gitOut(repo, ["merge-base", headSha, ref])
+      await gitOut(repo, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+      const base = await mergeBase(repo, headSha, ref, log)
       if (base && base !== headSha) return ref
     } catch {
       // not a ref here
@@ -198,8 +305,9 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     throw new Error(`no commit "${headRef}" in ${repo}`)
   })
   const baseRef =
-    options.base === null ? null : (options.base ?? (await defaultBase(repo, headSha)))
-  const baseSha = baseRef ? await gitOut(repo, ["merge-base", headSha, baseRef]) : null
+    options.base === null ? null : (options.base ?? (await defaultBase(repo, headSha, options.log)))
+  const baseSha = baseRef ? await mergeBase(repo, headSha, baseRef, options.log) : null
+  await completeObjects(repo, baseSha ? [headSha, baseSha] : [headSha], options.log)
   const run = validRun(options.run ?? headSha.slice(0, 10))
   const container = containerName(run)
 
@@ -264,14 +372,20 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
       "set -e",
       `git init -q ${HEAD_DIR}`,
       `cd ${HEAD_DIR}`,
-      // Every ref the host repository has, pull request refs and remotes included.
-      "git fetch -q --no-tags /src '+refs/*:refs/src/*' 'HEAD:refs/src/HEAD'",
+      // Just the two commits, without history: quick for a big repository,
+      // and all a shallow or partial clone is sure to have. More history is
+      // a \`git fetch /src <ref>\` away.
+      `git fetch -q --no-tags --depth 1 --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' /src ${headSha}${baseSha ? ` ${baseSha}` : ""}`,
       `git checkout -q --detach ${headSha}`,
       baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
     ].join("\n"),
     { timeoutMs: 600_000 },
   )
-  if (checkout.code !== 0) throw new Error(`checking out failed: ${checkout.stderr.trim()}`)
+  if (checkout.code !== 0) {
+    // A sandbox with no checkout is no use, and would block the next `up`.
+    await docker(["rm", "-f", "-v", container])
+    throw new Error(`checking out failed: ${checkout.stderr.trim()}`)
+  }
 
   const record: SandboxRecord = {
     run,
