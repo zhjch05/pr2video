@@ -49,7 +49,7 @@ Usage:
   pr2video tour check <tour.json> [--json]      Validate a tour file; exit 1 with its problems
   pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
                                                 Show the tour's pacing; optionally write captions as WebVTT
-  pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080]
+  pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080] [--workers n]
                                                 The tour as one self-contained HTML file and/or an MP4
   pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
                                                 Single frames as PNGs, exactly as the video draws them
@@ -84,6 +84,7 @@ type Flags = SandboxFlags &
     png?: string
     fps?: string
     height?: string
+    workers?: string
     help?: boolean
   }
 
@@ -182,6 +183,7 @@ async function main() {
       compare: { type: "boolean" },
       fresh: { type: "boolean" },
       fps: { type: "string" },
+      workers: { type: "string" },
       height: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -366,6 +368,7 @@ async function main() {
       }
       const video = await renderVideo(tourPath, flags.mp4, {
         fps: number(flags.fps, "fps"),
+        workers: number(flags.workers, "workers"),
         height: number(flags.height, "height"),
         log: flags.json ? undefined : (line) => console.log(line),
       })

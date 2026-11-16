@@ -70,7 +70,7 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    `tour check` refuses the draft's TODO. Drafting again after re-recording keeps the scenes, order,
    captions and zooms you wrote and takes fresh timings, focus and marks; change focus and marks in
    `scenes.json`, where they survive re-recording (`--fresh` starts the tour over). Look at a few `--frame` stills before rendering the MP4; the replay can differ from
-   the screenshots (see tour.md), and a still takes seconds where the MP4 takes minutes.
+   the screenshots (see tour.md), and a still takes seconds where the MP4 takes about a third of the tour's length.
 
 5. **Narrate** with a free local voice (no key; `auto` picks the best one installed):
 
@@ -89,7 +89,7 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    pr2video render .pr2video/<run>/tour.json --mp4 .pr2video/<run>/tour.mp4   # needs ffmpeg + Chromium
    ```
 
-   The MP4 takes a few minutes: run it in the background. Its shape follows the first scene's
+   The MP4 takes about a third of the tour's length, more on a machine with few cores. Its shape follows the first scene's
    viewport (a phone viewport gives a portrait video). Tell the user where the files are, the
    tour's length, and any scene you could not reach and why.
 

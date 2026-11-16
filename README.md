@@ -77,8 +77,8 @@ The image (about 2.5 GB) builds on first use. Requires Docker (Docker Desktop on
 - **HTML**: one file with the player, every recording (gzipped) and the narration inline. It opens
   from disk with no network: play, pause, seek, speed, mute, captions, and a list of scenes.
 - **MP4**: H.264 + AAC, rendered frame by frame from the same page in headless Chromium, so it
-  matches the HTML tour exactly. About 80-100 ms a frame on a laptop: a 90-second tour at 30 fps
-  takes three to four minutes.
+  matches the HTML tour exactly. Several pages draw frames at once (`--workers`, default half the
+  cores, at most 6): a 2-minute tour at 30 fps takes about 40 seconds on a 10-core laptop.
 
 ## Development
 

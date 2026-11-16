@@ -3,12 +3,13 @@
  * headless Chromium opens the same page as the HTML tour in render mode,
  * draws each frame at its exact tour time (`window.pr2video.seek`), and ffmpeg
  * encodes the screenshots. The narration is then mixed in at the times the
- * timeline starts each clip. Slower than recording the screen, but no frame
- * is ever dropped or late, and the video matches the HTML tour.
+ * timeline starts each clip. No frame is ever dropped or late, and the video
+ * matches the HTML tour. The frames are split between several pages, each
+ * encoding its own stretch, and the stretches are joined without re-encoding.
  */
 import { spawn } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { availableParallelism, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -25,6 +26,8 @@ export type VideoOptions = {
   quality?: number | undefined
   /** x264 constant rate factor: lower is better and bigger. */
   crf?: number | undefined
+  /** Pages drawing frames at once; default half the cores, at most 6. */
+  workers?: number | undefined
   log?: ((line: string) => void) | undefined
 }
 
@@ -73,6 +76,20 @@ function runFfmpeg(args: ReadonlyArray<string>): Promise<void> {
   return encoder.finish()
 }
 
+/** Opens the tour page in render mode and waits until the player is ready. */
+async function openTour(page: import("playwright").Page, htmlPath: string): Promise<void> {
+  await page.goto(`${pathToFileURL(htmlPath).href}?render`, { waitUntil: "domcontentloaded" })
+  await page.waitForFunction(
+    () =>
+      (globalThis as unknown as PageGlobals).pr2video ||
+      (globalThis as unknown as PageGlobals).pr2videoError,
+    null,
+    { timeout: 60_000 },
+  )
+  const failed = await page.evaluate(() => (globalThis as unknown as PageGlobals).pr2videoError)
+  if (failed) throw new Error(`the player failed: ${failed}`)
+}
+
 async function launchChromium() {
   let playwright: typeof import("playwright")
   try {
@@ -109,55 +126,96 @@ export async function renderVideo(
   const work = await mkdtemp(join(tmpdir(), "pr2video-render-"))
   const browser = await launchChromium()
   try {
-    const page = await browser.newPage({ viewport, deviceScaleFactor: scale })
     const htmlPath = join(work, "tour.html")
     await writeFile(htmlPath, html)
-    await page.goto(`${pathToFileURL(htmlPath).href}?render`, { waitUntil: "domcontentloaded" })
-    await page.waitForFunction(
-      () =>
-        (globalThis as unknown as PageGlobals).pr2video ||
-        (globalThis as unknown as PageGlobals).pr2videoError,
-      null,
-      { timeout: 60_000 },
-    )
-    const failed = await page.evaluate(() => (globalThis as unknown as PageGlobals).pr2videoError)
-    if (failed) throw new Error(`the player failed: ${failed}`)
-
-    const silent = join(work, "video.mp4")
-    const encoder = ffmpegEncoder([
-      "-y",
-      "-loglevel",
-      "error",
-      "-f",
-      "image2pipe",
-      "-framerate",
-      String(fps),
-      "-c:v",
-      "mjpeg",
-      "-i",
-      "-",
-      "-vf",
-      `scale=${width}:${height}:flags=lanczos`,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "medium",
-      "-crf",
-      String(options.crf ?? 18),
-      "-pix_fmt",
-      "yuv420p",
-      silent,
-    ])
     const frames = Math.ceil((timeline.totalMs / 1_000) * fps)
+    const workers = Math.max(
+      1,
+      Math.min(
+        options.workers ?? Math.min(6, Math.floor(availableParallelism() / 2)),
+        Math.ceil(frames / (fps * 2)),
+      ),
+    )
+    const per = Math.ceil(frames / workers)
     const started = Date.now()
-    for (let i = 0; i < frames; i++) {
-      const t = (i * 1_000) / fps
-      await page.evaluate((ms) => (globalThis as unknown as PageGlobals).pr2video?.seek(ms), t)
-      await encoder.write(await page.screenshot({ type: "jpeg", quality: options.quality ?? 92 }))
-      if (i % fps === 0 || i === frames - 1)
-        log(`frame ${i + 1}/${frames} (${((Date.now() - started) / 1_000).toFixed(0)}s)`)
+    let done = 0
+    const segments = await Promise.all(
+      Array.from({ length: workers }, async (_, w) => {
+        const from = w * per
+        const to = Math.min(frames, from + per)
+        const segment = join(work, `part-${w}.mp4`)
+        // Its own context, so its own renderer process.
+        const context = await browser.newContext({ viewport, deviceScaleFactor: scale })
+        const page = await context.newPage()
+        await openTour(page, htmlPath)
+        const cdp = await context.newCDPSession(page)
+        const encoder = ffmpegEncoder([
+          "-y",
+          "-loglevel",
+          "error",
+          "-f",
+          "image2pipe",
+          "-framerate",
+          String(fps),
+          "-c:v",
+          "mjpeg",
+          "-i",
+          "-",
+          "-vf",
+          `scale=${width}:${height}:flags=lanczos`,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "medium",
+          "-crf",
+          String(options.crf ?? 18),
+          "-pix_fmt",
+          "yuv420p",
+          segment,
+        ])
+        for (let i = from; i < to; i++) {
+          await page.evaluate(
+            (ms) => (globalThis as unknown as PageGlobals).pr2video?.seek(ms),
+            (i * 1_000) / fps,
+          )
+          // Chromium's own capture: Playwright's screenshot() does more
+          // (waits, checks) and took twice as long per frame.
+          const shot = (await cdp.send("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: options.quality ?? 92,
+            optimizeForSpeed: true,
+          })) as { data: string }
+          await encoder.write(Buffer.from(shot.data, "base64"))
+          done++
+          if (done % (fps * 5) === 0 || done === frames)
+            log(`frame ${done}/${frames} (${((Date.now() - started) / 1_000).toFixed(0)}s)`)
+        }
+        await encoder.finish()
+        await context.close()
+        return segment
+      }),
+    )
+    const silent = join(work, "video.mp4")
+    if (segments.length === 1 && segments[0]) {
+      await runFfmpeg(["-y", "-loglevel", "error", "-i", segments[0], "-c", "copy", silent])
+    } else {
+      const list = join(work, "parts.txt")
+      await writeFile(list, segments.map((path) => `file '${path}'\n`).join(""))
+      await runFfmpeg([
+        "-y",
+        "-loglevel",
+        "error",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list,
+        "-c",
+        "copy",
+        silent,
+      ])
     }
-    await encoder.finish()
 
     const clips = narrationOffsets(timeline).filter((clip) => data.audio[clip.audio])
     const out = resolve(outPath)
@@ -236,16 +294,7 @@ export async function renderStills(
     const page = await browser.newPage({ viewport, deviceScaleFactor: scale })
     const htmlPath = join(work, "tour.html")
     await writeFile(htmlPath, html)
-    await page.goto(`${pathToFileURL(htmlPath).href}?render`, { waitUntil: "domcontentloaded" })
-    await page.waitForFunction(
-      () =>
-        (globalThis as unknown as PageGlobals).pr2video ||
-        (globalThis as unknown as PageGlobals).pr2videoError,
-      null,
-      { timeout: 60_000 },
-    )
-    const failed = await page.evaluate(() => (globalThis as unknown as PageGlobals).pr2videoError)
-    if (failed) throw new Error(`the player failed: ${failed}`)
+    await openTour(page, htmlPath)
     const written: Array<string> = []
     for (const ms of times) {
       await page.evaluate((t) => (globalThis as unknown as PageGlobals).pr2video?.seek(t), ms)
