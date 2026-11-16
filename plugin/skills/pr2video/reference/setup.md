@@ -3,7 +3,9 @@
 The sandbox is a Linux container (Debian, Node 24 with corepack, Python 3, git, ripgrep, psql, jq,
 curl) with **its own Docker engine**: `docker run` and `docker compose` work inside it, and their
 published ports are on the sandbox's `localhost`. Chromium for Playwright is installed. The head is
-checked out at `/work/head` and the base at `/work/base`, both detached. pnpm and npm caches persist
+checked out at `/work/head` and the base at `/work/base`, both detached. The recorder's own
+Chromium lives in `/opt/pr2video`, apart from anything the project installs: a project that runs
+`playwright install` cannot break recording. pnpm and npm caches persist
 across runs, and Docker Hub pulls go through a local cache.
 
 ## How commands are passed
@@ -42,6 +44,8 @@ time, on the base:
 - Reset the database before migrating and seeding when the base's schema differs: record a step
   that drops and recreates it.
 - Do not record exploration (`ls`, `cat`, `curl`): it only slows the replay.
+- Record setup steps only while working on the head. Something you find you need while on the base
+  (a warm-up, a missing file) belongs in the journal too: add it, then `replay` again.
 
 ## Seeding data
 
@@ -51,6 +55,11 @@ Read the app's tests (e2e helpers, fixtures) for how they create users and recor
 usually the shortest path. First-run setup wizards (create the admin account) are often an API call.
 
 ## Secrets and outside services
+
+The app can reach the internet from the sandbox (it needs it to install packages), so it may fetch
+favicons, fonts or previews from other sites while you record. Prefer settings that turn such
+fetches off, and never give it real accounts or keys.
+
 
 Never invent real credentials. Use the project's example values, a local double (a Postgres in
 Docker instead of a hosted one), or ask the user. If the app cannot start without an outside

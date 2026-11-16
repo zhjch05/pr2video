@@ -17,8 +17,11 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 ## Phases
 
 1. **Understand the change.** Read the diff (`gh pr diff <n>` or `git diff base...head`) and the code
-   it touches. Write two sentences on what changed for a user of the app. If nothing visible changed
-   (pure refactor, tests, CI), say so and stop: there is nothing to film.
+   it touches. Write two sentences on what changed for a user of the app.
+   - Nothing visible changed (a refactor, tests, CI): say so and stop. There is nothing to film.
+   - Only an API changed: find the screen that shows its result and film that. If no screen uses
+     it, tell the user before filming; a raw JSON response replays as one unstyled line (the
+     browser's JSON viewer is not part of the page), so it makes a poor tour.
 2. **Get the app running** in the sandbox. Read [reference/setup.md](reference/setup.md) first.
 
    ```bash
@@ -57,8 +60,14 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 
    ```bash
    pr2video tour draft                  # .pr2video/<run>/tour.json
+   pr2video tour draft --compare        # or: each checkpoint the base reached, shown first as "before"
    pr2video tour check .pr2video/<run>/tour.json
+   pr2video render .pr2video/<run>/tour.json --frame 4000,12000   # stills, exactly as the video draws them
    ```
+
+   With `--compare`, write each "before" caption from the base screenshot: `tour check` refuses the
+   draft's TODO. Look at a few `--frame` stills before rendering the MP4; the replay can differ from
+   the screenshots (see tour.md), and a still takes seconds where the MP4 takes minutes.
 
 5. **Narrate** with a free local voice (no key; `auto` picks the best one installed):
 

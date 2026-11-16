@@ -14,6 +14,7 @@ import {
   tourProblems,
   tourSchema,
   tourTimeline,
+  tourWarnings,
   toVtt,
 } from "@pr2video/tour"
 import {
@@ -37,7 +38,7 @@ import {
   tourDraft,
 } from "./record-commands.ts"
 import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
-import { renderVideo } from "./video.ts"
+import { renderStills, renderVideo } from "./video.ts"
 
 const HELP = `pr2video - turn a pull request into a narrated tour
 
@@ -50,6 +51,8 @@ Usage:
                                                 Show the tour's pacing; optionally write captions as WebVTT
   pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080]
                                                 The tour as one self-contained HTML file and/or an MP4
+  pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
+                                                Single frames as PNGs, exactly as the video draws them
   pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
 
 ${SANDBOX_HELP}
@@ -77,6 +80,8 @@ type Flags = SandboxFlags &
     vtt?: string
     html?: string
     mp4?: string
+    frame?: string
+    png?: string
     fps?: string
     height?: string
     help?: boolean
@@ -172,6 +177,9 @@ async function main() {
       name: { type: "string" },
       html: { type: "string" },
       mp4: { type: "string" },
+      frame: { type: "string" },
+      png: { type: "string" },
+      compare: { type: "boolean" },
       fps: { type: "string" },
       height: { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -256,9 +264,13 @@ async function main() {
     const problems = tourProblems(input)
     if (!problems.length) problems.push(...(await missingFiles(tourPath, tourSchema.parse(input))))
     if (sub === "check") {
-      if (flags.json) console.log(JSON.stringify({ ok: problems.length === 0, problems }, null, 2))
-      else if (!problems.length) console.log("tour ok")
-      else for (const p of problems) console.log(`${p.path}: ${p.message}`)
+      const warnings = problems.length ? [] : tourWarnings(tourSchema.parse(input))
+      if (flags.json)
+        console.log(JSON.stringify({ ok: problems.length === 0, problems, warnings }, null, 2))
+      else if (!problems.length) {
+        console.log("tour ok")
+        for (const w of warnings) console.log(`warning ${w.path}: ${w.message}`)
+      } else for (const p of problems) console.log(`${p.path}: ${p.message}`)
       process.exit(problems.length ? 1 : 0)
     }
     if (problems.length)
@@ -315,11 +327,26 @@ async function main() {
 
   if (command === "render") {
     const [tourPath] = rest
-    if (!tourPath || (!flags.html && !flags.mp4))
+    if (!tourPath || (!flags.html && !flags.mp4 && !flags.frame))
       fail(
-        "usage: pr2video render <tour.json> --html <out.html> and/or --mp4 <out.mp4>",
+        "usage: pr2video render <tour.json> --html <out.html> and/or --mp4 <out.mp4>, or --frame <ms,...> [--png <prefix>]",
         flags.json,
       )
+    if (flags.frame) {
+      const times = flags.frame.split(",").map((t) => Number(t.trim()))
+      if (times.some((t) => !Number.isFinite(t) || t < 0))
+        fail(
+          "--frame takes tour times in ms, comma-separated (see `pr2video tour timeline`)",
+          flags.json,
+        )
+      const prefix = flags.png ?? join(dirname(tourPath), "frame")
+      const written = await renderStills(tourPath, times, prefix, {
+        height: flags.height ? Number(flags.height) : undefined,
+      })
+      if (flags.json) console.log(JSON.stringify({ ok: true, frames: written }, null, 2))
+      else for (const path of written) console.log(path)
+      if (!flags.html && !flags.mp4) return
+    }
     const outputs: Record<string, unknown> = {}
     if (flags.html) {
       const { html } = await buildHtml(tourPath)

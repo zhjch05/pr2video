@@ -107,6 +107,11 @@ export function tourProblems(input: unknown): Array<TourProblem> {
           path: `${at}.markers.${m}`,
           message: "marker box lies outside the viewport",
         })
+    if (/^TODO\b/i.test(scene.caption.trim()))
+      problems.push({
+        path: `${at}.caption`,
+        message: "write this caption: it is still the draft's TODO",
+      })
     if (scene.caption.length > 280)
       problems.push({
         path: `${at}.caption`,
@@ -114,4 +119,26 @@ export function tourProblems(input: unknown): Array<TourProblem> {
       })
   }
   return problems
+}
+
+/**
+ * What in a valid tour will not look the way it reads: a zoom that cannot
+ * apply because its focus is too big to magnify and keep a margin (the player
+ * never cuts the focus off), so the scene shows at a smaller zoom.
+ */
+export function tourWarnings(tour: Tour): Array<TourProblem> {
+  const warnings: Array<TourProblem> = []
+  for (const [i, scene] of tour.scenes.entries()) {
+    if (!scene.focus || scene.zoom <= 1) continue
+    const { width, height } = scene.focus.box
+    const fits = (zoom: number) =>
+      width * zoom <= scene.viewport.width * 0.86 && height * zoom <= scene.viewport.height * 0.86
+    if (fits(scene.zoom)) continue
+    const shown = [2, 1.5].find((zoom) => zoom < scene.zoom && fits(zoom)) ?? 1
+    warnings.push({
+      path: `scenes.${i}.zoom`,
+      message: `zoom ${scene.zoom} will show as ${shown}: the focus (${Math.round(width)}x${Math.round(height)}) is too big to magnify that much in ${scene.viewport.width}x${scene.viewport.height}; focus something smaller or set zoom ${shown}`,
+    })
+  }
+  return warnings
 }

@@ -29,8 +29,6 @@ import {
 
 /** A beat between steps, so the recording reads as a person using the app. */
 const STEP_PAUSE_MS = 500
-/** How long a step waits for its element before the scene stops. */
-const STEP_TIMEOUT_MS = 10_000
 /** The recording keeps going this long after a checkpoint's screenshot. */
 const AFTER_SHOT_MS = 700
 const SETTLE_MS = 5_000
@@ -53,6 +51,10 @@ const rrwebPath =
 
 const file: ScenesFile = scenesFileSchema.parse(JSON.parse(await readFile(values.scenes, "utf8")))
 const origin = new URL(file.baseUrl).origin
+/** How long a step waits for its element before the scene stops. */
+const STEP_TIMEOUT_MS = file.timeoutMs
+/** A first visit to a page a dev server has not compiled yet. */
+const WARMUP_TIMEOUT_MS = 120_000
 
 function log(line: string) {
   console.log(`[record ${side}] ${line}`)
@@ -179,18 +181,32 @@ async function measure(target: Locator) {
   })
 }
 
+class SignInError extends Error {
+  readonly screenshot: string | null
+  constructor(message: string, screenshot: string | null) {
+    super(message)
+    this.screenshot = screenshot
+  }
+}
+
 async function signIn(browser: Browser, role: string): Promise<string> {
   const steps = file.roles[role]?.steps ?? []
   const context = await browser.newContext({ viewport: file.viewport })
   const page = await context.newPage()
   try {
-    await page.goto(file.baseUrl, { waitUntil: "load", timeout: 30_000 })
+    await page.goto(file.baseUrl, { waitUntil: "load", timeout: WARMUP_TIMEOUT_MS })
     for (const [i, step] of steps.entries()) {
       try {
         await perform(page, step)
       } catch (error) {
-        throw new Error(
-          `signing in as ${role} failed at step ${i + 1}: ${(error as Error).message.split("\n")[0]}`,
+        const shot = `.auth-${role}-stopped.png`
+        const saved = await page
+          .screenshot({ path: join(out, shot) })
+          .then(() => shot)
+          .catch(() => null)
+        throw new SignInError(
+          `signing in as ${role} failed at step ${i + 1} (on ${page.url()}): ${(error as Error).message.split("\n")[0]}`,
+          saved,
         )
       }
     }
@@ -269,11 +285,12 @@ async function recordScene(
     log(`${scene.id}: could not open ${scene.url}: ${error.message}`)
   }
   await flush()
+  const json = await inlineFonts(context, JSON.stringify(events))
   await context.close()
 
   const start = events[0]?.timestamp ?? Date.now()
   const end = events.at(-1)?.timestamp ?? start
-  await writeFile(join(dir, "events.json"), JSON.stringify(events))
+  await writeFile(join(dir, "events.json"), json)
   const checkpoints = raw.map(({ at, shot, ...rest }) => ({
     ...rest,
     atMs: Math.max(0, at - start),
@@ -347,13 +364,86 @@ async function checkpoint(
   }
 }
 
+const FONT_URL = /https?:\/\/[^"'()\\\s]+?\.(?:woff2|woff|ttf|otf|eot)(?:\?[^"'()\\\s]*)?/g
+const FONT_TYPES: Record<string, string> = {
+  woff2: "font/woff2",
+  woff: "font/woff",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  eot: "application/vnd.ms-fontobject",
+}
+/** At most this much font data per recording, so one icon set never bloats the tour. */
+const MAX_FONT_BYTES = 6_000_000
+
+/**
+ * The fonts the recorded stylesheets point at, inlined as data URLs. rrweb
+ * inlines stylesheets but leaves their `url(...)` pointing at the app, which
+ * the replay - on another origin, offline - cannot reach: icon fonts showed as
+ * empty squares. Fetched through the context while the app still answers.
+ */
+async function inlineFonts(context: BrowserContext, json: string): Promise<string> {
+  const urls = [...new Set(json.match(FONT_URL) ?? [])]
+  let total = 0
+  const replacements = new Map<string, string>()
+  for (const url of urls) {
+    try {
+      const response = await context.request.get(url, { timeout: 15_000 })
+      if (!response.ok()) continue
+      const body = await response.body()
+      if (total + body.length > MAX_FONT_BYTES) continue
+      total += body.length
+      const extension = (new URL(url).pathname.split(".").pop() ?? "").toLowerCase()
+      replacements.set(
+        url,
+        `data:${FONT_TYPES[extension] ?? "font/woff2"};base64,${body.toString("base64")}`,
+      )
+    } catch {
+      // Unreachable: the replay falls back to the page's other fonts.
+    }
+  }
+  if (replacements.size) log(`inlined ${replacements.size} font(s), ${(total / 1e6).toFixed(1)} MB`)
+  return replacements.size ? json.replace(FONT_URL, (url) => replacements.get(url) ?? url) : json
+}
+
+/**
+ * Opens each scene's page once, unrecorded (signed in as its role): a dev
+ * server compiles a page on its first visit, which can take longer than a step waits.
+ */
+async function warmUp(browser: Browser, scenes: ReadonlyArray<Scene>, auth: Map<string, string>) {
+  for (const scene of scenes) {
+    const storageState = scene.role ? auth.get(scene.role) : undefined
+    const context = await browser.newContext({
+      viewport: scene.viewport ?? file.viewport,
+      ...(storageState ? { storageState } : {}),
+    })
+    const page = await context.newPage()
+    const started = Date.now()
+    await page
+      .goto(absolute(scene.url), { waitUntil: "load", timeout: WARMUP_TIMEOUT_MS })
+      .then(() => settle(page))
+      .catch((error: Error) => log(`warm-up of ${scene.url}: ${error.message.split("\n")[0]}`))
+    await context.close()
+    log(`warmed ${scene.url} in ${((Date.now() - started) / 1000).toFixed(1)}s`)
+  }
+}
+
 const browser = await chromium.launch()
 try {
   await mkdir(out, { recursive: true })
   const scenes = file.scenes.filter((s) => !values.only || s.id === values.only)
   const auth = new Map<string, string>()
-  for (const role of new Set(scenes.flatMap((s) => (s.role ? [s.role] : []))))
-    auth.set(role, await signIn(browser, role))
+  try {
+    for (const role of new Set(scenes.flatMap((s) => (s.role ? [s.role] : []))))
+      auth.set(role, await signIn(browser, role))
+  } catch (error) {
+    const screenshot = error instanceof SignInError ? error.screenshot : null
+    await writeFile(
+      join(out, "summary.json"),
+      `${JSON.stringify({ side, scenes: [], signIn: { message: (error as Error).message, screenshot } }, null, 2)}\n`,
+    )
+    throw error
+  }
+  if (file.warmup) await warmUp(browser, scenes, auth)
   const results: Array<SceneResult> = []
   for (const scene of scenes) results.push(await recordScene(browser, scene, auth))
   await writeFile(

@@ -112,6 +112,13 @@ export const scenesFileSchema = z.object({
   /** Where the app answers inside the sandbox. */
   baseUrl: z.string().url(),
   viewport: viewportSchema.default({ width: 1280, height: 800 }),
+  /** How long a step waits for its element before the scene stops. Raise it for a slow dev server. */
+  timeoutMs: z.number().int().min(1_000).max(120_000).default(15_000),
+  /**
+   * Visit every scene's page once, unrecorded, before recording: a dev server
+   * that compiles a page on its first visit then answers in time.
+   */
+  warmup: z.boolean().default(true),
   roles: z.record(z.string(), roleSchema).default({}),
   scenes: z.array(sceneSchema).min(1).max(8),
 })

@@ -59,3 +59,15 @@ marks what changed, and holds while the caption is read aloud.
 marks. `pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
 `pr2video tour check` also checks every recording and clip it names still exists: after
 re-recording, draft again rather than keeping old timings.
+
+## What the replay cannot show
+
+The tour replays what rrweb recorded of the page, not a video. Check stills (`render --frame`) for:
+
+- **Browser-drawn pages**: the JSON viewer, PDF viewer and error pages are not part of the page, so
+  they replay unstyled. Film a screen of the app instead.
+- **Canvas and video** content is not recorded.
+- **Images from other sites** (favicons, avatars, CDN pictures) load in the replay only if the viewer
+  is online. Fonts served by the app are inlined; fonts from other sites are not.
+- **Zoom** applies only when the focus fits magnified with a margin: `tour check` warns when a zoom
+  will show smaller than asked. Focus a smaller element, or ask for less zoom.

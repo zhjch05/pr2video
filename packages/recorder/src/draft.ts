@@ -22,9 +22,28 @@ export type DraftOptions = {
   recordings: string
   /** The directory `tour.json` will be written in: paths in it are relative to here. */
   tourDir: string
+  /**
+   * Where `record --side base` left its scenes: each head checkpoint the base
+   * also reached is shown first as it was before the change, with a caption
+   * left for the agent to write.
+   */
+  base?: string | undefined
 }
 
 export type DraftResult = { tour: Tour; skipped: Array<{ scene: string; reason: string }> }
+
+/** The caption a "before" scene starts with: `tour check` refuses it until it is written. */
+export const BEFORE_CAPTION = "TODO: say what the base shows here, before the change"
+
+async function readResult(dir: string, scene: string): Promise<SceneResult | null> {
+  try {
+    return sceneResultSchema.parse(
+      JSON.parse(await readFile(join(dir, scene, "result.json"), "utf8")),
+    )
+  } catch {
+    return null
+  }
+}
 
 export async function draftTour(options: DraftOptions): Promise<DraftResult> {
   const scenes: Array<TourScene> = []
@@ -49,8 +68,42 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
       scene.steps.filter(isCheckpoint).map((step): [string, Checkpoint] => [step.checkpoint, step]),
     )
     const events = relative(options.tourDir, join(options.recordings, scene.id, result.events))
+    const before = options.base ? await readResult(options.base, scene.id) : null
+    const baseEvents =
+      before && options.base
+        ? relative(options.tourDir, join(options.base, scene.id, before.events))
+        : null
     for (const [i, cp] of result.checkpoints.entries()) {
       const spec = specs.get(cp.checkpoint)
+      const was = before?.checkpoints.findIndex((b) => b.checkpoint === cp.checkpoint) ?? -1
+      const baseCp = before && was >= 0 ? before.checkpoints[was] : undefined
+      if (before && baseCp && baseEvents) {
+        const previous = before.checkpoints[was - 1]
+        const next = before.checkpoints[was + 1]
+        scenes.push({
+          id: `${scene.id}-${cp.checkpoint}-before`,
+          label: `S${label}.${i + 1} before`,
+          events: baseEvents,
+          viewport: before.viewport,
+          startMs: previous ? previous.shotMs : 0,
+          endMs: next
+            ? Math.max(baseCp.shotMs, next.atMs - 1)
+            : Math.max(baseCp.shotMs, before.durationMs),
+          atMs: baseCp.atMs,
+          shotMs: baseCp.shotMs,
+          caption: `${BEFORE_CAPTION} (head: ${spec?.caption ?? scene.title})`,
+          focus: baseCp.focus,
+          zoom: spec?.zoom ?? (baseCp.focus ? 1.5 : 1),
+          markers: baseCp.marks.map((mark) => ({
+            box: mark.box,
+            node: mark.node,
+            label: mark.label,
+            tone: "note" as const,
+          })),
+          audio: null,
+          audioMs: null,
+        })
+      }
       const previous = result.checkpoints[i - 1]
       const next = result.checkpoints[i + 1]
       scenes.push({

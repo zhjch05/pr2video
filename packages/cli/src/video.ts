@@ -213,3 +213,49 @@ export async function renderVideo(
     await rm(work, { recursive: true, force: true })
   }
 }
+
+/**
+ * Single frames of the tour as PNGs, drawn exactly as the MP4 would draw them
+ * at those tour times: a quick look at a zoom or a mark without rendering the
+ * whole video. Writes `<prefix>-<ms>.png` for each time.
+ */
+export async function renderStills(
+  tourPath: string,
+  times: ReadonlyArray<number>,
+  prefix: string,
+  options: { height?: number | undefined } = {},
+): Promise<Array<string>> {
+  const { html, data } = await buildHtml(tourPath)
+  const first = data.tour.scenes[0]
+  if (!first) throw new Error("the tour has no scenes")
+  const viewport = first.viewport
+  const scale = (options.height ?? 720) / viewport.height
+  const work = await mkdtemp(join(tmpdir(), "pr2video-stills-"))
+  const browser = await launchChromium()
+  try {
+    const page = await browser.newPage({ viewport, deviceScaleFactor: scale })
+    const htmlPath = join(work, "tour.html")
+    await writeFile(htmlPath, html)
+    await page.goto(`${pathToFileURL(htmlPath).href}?render`, { waitUntil: "domcontentloaded" })
+    await page.waitForFunction(
+      () =>
+        (globalThis as unknown as PageGlobals).pr2video ||
+        (globalThis as unknown as PageGlobals).pr2videoError,
+      null,
+      { timeout: 60_000 },
+    )
+    const failed = await page.evaluate(() => (globalThis as unknown as PageGlobals).pr2videoError)
+    if (failed) throw new Error(`the player failed: ${failed}`)
+    const written: Array<string> = []
+    for (const ms of times) {
+      await page.evaluate((t) => (globalThis as unknown as PageGlobals).pr2video?.seek(t), ms)
+      const path = resolve(`${prefix}-${Math.round(ms)}.png`)
+      await page.screenshot({ path })
+      written.push(path)
+    }
+    return written
+  } finally {
+    await browser.close()
+    await rm(work, { recursive: true, force: true })
+  }
+}

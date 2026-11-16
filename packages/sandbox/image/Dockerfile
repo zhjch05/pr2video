@@ -9,8 +9,8 @@
 #     Redis, its own docker compose file - run inside the sandbox, so its
 #     recipes see localhost as they would anywhere, and nothing reaches the
 #     host's Docker. Needs --privileged; the entrypoint starts dockerd.
-#   - Chromium for Playwright at a fixed path, and Playwright + rrweb in
-#     /opt/pr2video, for the recorder.
+#   - Playwright, its Chromium and rrweb in /opt/pr2video, for the recorder,
+#     apart from anything a project installs.
 #   - The tools an agent reaches for unprompted: git, ripgrep, psql, python,
 #     jq, curl, lsof.
 FROM node:24-bookworm
@@ -34,8 +34,11 @@ RUN corepack enable \
   && git config --system --add safe.directory '*' \
   && git config --system advice.detachedHead false
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN npx -y playwright@1.63.0 install --with-deps chromium \
+# The recorder's Chromium lives in its own folder, and PLAYWRIGHT_BROWSERS_PATH
+# is NOT set for the image: a project's own `playwright install` goes to its
+# default cache and can never garbage-collect the recorder's browser (it did:
+# linkwarden's postinstall removed it). The recorder sets the path itself.
+RUN PLAYWRIGHT_BROWSERS_PATH=/opt/pr2video/browsers npx -y playwright@1.63.0 install --with-deps chromium \
   && rm -rf /root/.npm /var/lib/apt/lists/*
 
 # The recorder's runtime: Playwright (driving the Chromium above) and rrweb.

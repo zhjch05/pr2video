@@ -16,14 +16,16 @@ export type RecordFlags = {
   scenes?: string | undefined
   only?: string | undefined
   output?: string | undefined
+  compare?: boolean | undefined
 }
 
 export const RECORD_HELP = `Recording:
   pr2video scenes check [<scenes.json>] [--json]  Validate a scenes file (default .pr2video/<run>/scenes.json)
   pr2video record [--side head|base] [--scenes <file>] [--only <scene>]
                                                 Record the scenes in the sandbox's browser
-  pr2video tour draft [--scenes <file>] [-o <tour.json>]
-                                                A first tour from the head's recordings`
+  pr2video tour draft [--compare] [--scenes <file>] [-o <tour.json>]
+                                                A first tour from the head's recordings; --compare puts
+                                                each checkpoint's base recording before it ("before")`
 
 async function readJson(path: string): Promise<unknown> {
   try {
@@ -89,7 +91,8 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   const out = `${INSIDE_OUT}/${side}`
   const command = [
     `rm -rf ${out}`,
-    `node ${INSIDE}/record.mjs --scenes ${INSIDE}/scenes.json --side ${side} --out ${out}${flags.only ? ` --only ${JSON.stringify(flags.only)}` : ""}`,
+    // The recorder's own Chromium, apart from any the project installed.
+    `PLAYWRIGHT_BROWSERS_PATH=${INSIDE}/browsers node ${INSIDE}/record.mjs --scenes ${INSIDE}/scenes.json --side ${side} --out ${out}${flags.only ? ` --only ${JSON.stringify(flags.only)}` : ""}`,
   ].join(" && ")
   const result = await exec(record, command, {
     cwd: INSIDE,
@@ -104,7 +107,18 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   // Only the scenes just recorded are replaced: re-recording one with --only
   // (or from another scenes file) keeps every other scene's recording.
   const recorded: Array<string> = []
+  let signIn: { message: string; screenshot: string | null } | null = null
   if (copied.code === 0) {
+    const incomingSummary = (await readJson(join(incoming, "summary.json")).catch(() => null)) as {
+      signIn?: { message: string; screenshot: string | null }
+    } | null
+    signIn = incomingSummary?.signIn ?? null
+    if (signIn?.screenshot) {
+      await rename(join(incoming, signIn.screenshot), join(local, signIn.screenshot)).catch(
+        () => undefined,
+      )
+      signIn = { ...signIn, screenshot: join(local, signIn.screenshot) }
+    }
     for (const entry of await readdir(incoming, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
       await rm(join(local, entry.name), { recursive: true, force: true })
@@ -128,8 +142,12 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   }
   const scenes = (await sceneResults(local)).filter((r) => recorded.includes(r.scene))
   const ok = result.exitCode === 0 && scenes.length > 0
-  if (flags.json) console.log(JSON.stringify({ ok, side, recordings: local, scenes }, null, 2))
-  else {
+  if (flags.json)
+    console.log(JSON.stringify({ ok, side, recordings: local, scenes, signIn }, null, 2))
+  else if (signIn) {
+    console.error(`\npr2video: ${signIn.message}`)
+    if (signIn.screenshot) console.error(`  where it stopped: ${signIn.screenshot}`)
+  } else {
     console.log(`\nrecordings in ${local}`)
     for (const s of scenes)
       console.log(`  ${s.scene}: ${s.status}${s.error ? ` (stopped: ${s.error.message})` : ""}`)
@@ -169,6 +187,7 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
     scenes,
     recordings: join(dir, "recordings", "head"),
     tourDir: dirname(out),
+    base: flags.compare ? join(dir, "recordings", "base") : undefined,
   })
   if (!tour.scenes.length)
     throw new Error("nothing was recorded on the head: run `pr2video record` first")

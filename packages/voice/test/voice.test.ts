@@ -59,7 +59,7 @@ describe("narrateTour", () => {
     const first = await narrateTour(path, "say")
     expect(first.spoken).toBe(1)
     const scene = first.tour.scenes[0]
-    expect(scene?.audio).toMatch(/^audio\/s1-[0-9a-f]{12}\.(mp3|wav)$/)
+    expect(scene?.audio).toMatch(/^audio\/[0-9a-f]{12}\.(mp3|wav)$/)
     expect(scene?.audioMs).toBeGreaterThan(1_000)
     const again = await narrateTour(path, "say")
     expect(again).toMatchObject({ spoken: 0, reused: 1 })

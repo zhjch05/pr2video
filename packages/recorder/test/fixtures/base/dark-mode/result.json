@@ -1,0 +1,29 @@
+{
+  "scene": "dark-mode",
+  "side": "base",
+  "status": "partly",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "durationMs": 1080,
+  "checkpoints": [
+    {
+      "checkpoint": "switch",
+      "url": "http://localhost:4173/settings.html",
+      "focus": null,
+      "marks": [],
+      "missing": ["role=\"switch\" name=\"Dark mode\"", "role=\"switch\" name=\"Dark mode\""],
+      "screenshot": "switch.png",
+      "atMs": 12093,
+      "shotMs": 12097
+    }
+  ],
+  "error": {
+    "step": 2,
+    "message": "locator.click: Timeout 10000ms exceeded.",
+    "url": "http://localhost:4173/settings.html",
+    "screenshot": "stopped.png"
+  },
+  "events": "events.json"
+}

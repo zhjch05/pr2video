@@ -54,6 +54,24 @@ describe("draftTour", () => {
     expect(tourProblems(tour)).toEqual([])
   })
 
+  it("with base recordings, shows each checkpoint the base reached before it, caption to write", async () => {
+    const { tour } = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: `${fixtures}head`,
+      tourDir: fixtures,
+      base: `${fixtures}base`,
+    })
+    expect(tour.scenes.map((s) => s.id)).toEqual([
+      "dark-mode-switch-before",
+      "dark-mode-switch",
+      "dark-mode-on",
+    ])
+    expect(tour.scenes[0]?.events).toBe("base/dark-mode/events.json")
+    expect(tourProblems(tour)).toEqual([
+      { path: "scenes.0.caption", message: "write this caption: it is still the draft's TODO" },
+    ])
+  })
+
   it("leaves out a scene that was never recorded", async () => {
     const file = scenesFileSchema.parse(await scenesFile())
     const [first] = file.scenes

@@ -9,7 +9,7 @@ import { dirname, join, relative } from "node:path"
 
 import { type Tour, tourSchema } from "@pr2video/tour"
 
-import { onPath, runOrThrow } from "./run.ts"
+import { onPath, run, runOrThrow } from "./run.ts"
 import { VOICES, type VoiceId, type VoiceOptions } from "./voices.ts"
 import { wavDurationMs } from "./wav.ts"
 
@@ -71,6 +71,26 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/** A clip's length: read from a WAV, or asked of ffprobe for anything else; null when unknown. */
+async function clipLength(path: string): Promise<number | null> {
+  try {
+    if (path.endsWith(".wav")) return wavDurationMs(new Uint8Array(await readFile(path)))
+    const result = await run("ffprobe", [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "csv=p=0",
+      path,
+    ])
+    const seconds = Number.parseFloat(result.stdout)
+    return result.code === 0 && Number.isFinite(seconds) ? Math.round(seconds * 1_000) : null
+  } catch {
+    return null
+  }
+}
+
 export type NarrateResult = { tour: Tour; spoken: number; reused: number }
 
 /**
@@ -86,27 +106,38 @@ export async function narrateTour(
   const root = dirname(tourPath)
   let spoken = 0
   let reused = 0
+  // Clips are named by what they say, not by scene: the same caption is
+  // spoken once, whatever its scene is called now.
+  const known = new Map<string, number>()
+  for (const scene of tour.scenes)
+    if (scene.audio && scene.audioMs != null) known.set(scene.audio, scene.audioMs)
   const scenes = []
   for (const scene of tour.scenes) {
     if (voice === "none") {
       scenes.push({ ...scene, audio: null, audioMs: null })
       continue
     }
-    const base = join(root, "audio", `${scene.id}-${clipKey(voice, scene.caption, options)}`)
-    const known =
-      scene.audio &&
-      scene.audioMs != null &&
-      relative(root, base) === scene.audio.replace(/\.(mp3|wav)$/, "")
-    if (known && scene.audio && (await exists(join(root, scene.audio)))) {
-      scenes.push(scene)
+    const key = clipKey(voice, scene.caption, options)
+    let reuse: { audio: string; audioMs: number } | null = null
+    for (const extension of ["mp3", "wav"]) {
+      const audio = `audio/${key}.${extension}`
+      const audioMs = known.get(audio) ?? (await clipLength(join(root, audio)))
+      if (audioMs != null && (await exists(join(root, audio)))) {
+        reuse = { audio, audioMs }
+        break
+      }
+    }
+    if (reuse) {
+      scenes.push({ ...scene, ...reuse })
+      known.set(reuse.audio, reuse.audioMs)
       reused++
       continue
     }
-    const clip = await speak(scene.caption, voice, base, options)
-    options.log?.(
-      `${scene.label}: ${(clip.durationMs / 1000).toFixed(1)}s ${relative(root, clip.path)}`,
-    )
-    scenes.push({ ...scene, audio: relative(root, clip.path), audioMs: clip.durationMs })
+    const clip = await speak(scene.caption, voice, join(root, "audio", key), options)
+    const audio = relative(root, clip.path)
+    options.log?.(`${scene.label}: ${(clip.durationMs / 1000).toFixed(1)}s ${audio}`)
+    scenes.push({ ...scene, audio, audioMs: clip.durationMs })
+    known.set(audio, clip.durationMs)
     spoken++
   }
   const next: Tour = { ...tour, scenes, voice }

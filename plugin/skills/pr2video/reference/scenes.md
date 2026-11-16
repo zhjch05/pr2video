@@ -21,6 +21,8 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
   "summary": "Two sentences a reviewer reads before pressing play.",
   "baseUrl": "http://localhost:3000",            // where the app answers INSIDE the sandbox
   "viewport": { "width": 1280, "height": 800 },  // optional
+  "timeoutMs": 15000,                            // optional: how long a step waits for its element
+  "warmup": true,                                // optional: visit each scene's page once, unrecorded, first
   "roles": {                                     // optional: how each role signs in, not recorded
     "admin": { "steps": [
       { "goto": "/login" },
@@ -49,6 +51,13 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
   }]
 }
 ```
+
+## Slow pages
+
+A dev server compiles a page on its first visit, which can take longer than a step waits. The
+recorder visits every scene's page once, unrecorded, before recording (`warmup`), and the sign-in
+gets two minutes for its first page. If steps still time out, raise `timeoutMs`, or serve a
+production build. A failed sign-in leaves `recordings/<side>/.auth-<role>-stopped.png`.
 
 ## Actions
 
