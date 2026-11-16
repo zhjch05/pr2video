@@ -1,0 +1,40 @@
+{
+  "name": "@pr2video/voice",
+  "version": "0.0.0",
+  "description": "Free, local narration voices for pr2video tours: Kokoro, macOS say, Piper, eSpeak NG.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@pr2video/tour": "workspace:*"
+  },
+  "peerDependencies": {
+    "kokoro-js": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "kokoro-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "kokoro-js": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

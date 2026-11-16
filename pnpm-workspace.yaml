@@ -1,0 +1,17 @@
+packages:
+  - packages/*
+
+# kokoro-js's ONNX runtime fetches its native binary on install. sharp and
+# protobufjs come along with transformers.js and need nothing built here.
+allowBuilds:
+  onnxruntime-node: true
+  protobufjs: false
+  sharp: false
+
+catalog:
+  "@biomejs/biome": 2.5.14
+  "@types/node": ^24.0.0
+  typescript: 7.0.2
+  vitest: ^4.1.0
+  zod: ^4.3.6
+  kokoro-js: 1.2.1

@@ -1,0 +1,11 @@
+{
+  "name": "pr2video",
+  "owner": { "name": "pr2video" },
+  "plugins": [
+    {
+      "name": "pr2video",
+      "source": "./plugin",
+      "description": "Turn a pull request into a narrated tour of the running app, using your own agent and tokens."
+    }
+  ]
+}
