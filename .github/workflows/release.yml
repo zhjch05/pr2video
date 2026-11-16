@@ -1,0 +1,62 @@
+name: Release
+
+# Pushing a tag v<version> publishes pr2video@<version> to npm and makes a GitHub release.
+# npm trusts this workflow by OIDC (trusted publishing), so no npm token is stored anywhere;
+# the package gets a provenance statement linking it to this commit. Setup: RELEASING.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # the GitHub release
+  id-token: write # npm trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest
+
+      - name: The tag matches the package and plugin versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cli=$(node -p 'require("./packages/cli/package.json").version')
+          plugin=$(node -p 'require("./plugin/.claude-plugin/plugin.json").version')
+          if [ "$tag" != "$cli" ] || [ "$tag" != "$plugin" ]; then
+            echo "tag $GITHUB_REF_NAME, packages/cli $cli, plugin $plugin: set all three to the same version"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check-types
+      - run: pnpm build
+      - run: pnpm test
+
+      # pnpm pack rewrites catalog: and workspace:* in the manifest; npm publishes the tarball,
+      # because npm is what speaks trusted publishing.
+      - name: Publish to npm
+        run: |
+          mkdir -p /tmp/pack
+          (cd packages/cli && pnpm pack --pack-destination /tmp/pack)
+          tag=latest
+          case "$GITHUB_REF_NAME" in *-*) tag=next ;; esac
+          npm publish /tmp/pack/pr2video-*.tgz --access public --tag "$tag"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" /tmp/pack/pr2video-*.tgz --generate-notes $flags

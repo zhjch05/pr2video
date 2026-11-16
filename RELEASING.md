@@ -7,23 +7,50 @@ Nothing here has been published yet. Before the first release:
 2. **npm.** `pr2video` was free on 2026-11-16. It is the only package published (the `@pr2video/*`
    packages are bundled into it and stay private), so no npm organization is needed.
 3. **License.** MIT was chosen as a default; confirm it.
-4. **Check.** `pnpm install && pnpm lint && pnpm check-types && pnpm build && pnpm test`, plus
-   `PR2VIDEO_TEST_DOCKER=1` and `PR2VIDEO_TEST_MP4=1` runs locally (CI runs neither).
+4. **Check.** `PR2VIDEO_TEST_DOCKER=1` and `PR2VIDEO_TEST_MP4=1 pnpm test` locally before a
+   release: CI and the release workflow run neither.
+
+## First release (once)
+
+npm only lets you set up trusted publishing on a package that already exists, so 0.1.0 goes up by hand:
+
+1. Create the repository and push `main`.
+2. Publish 0.1.0 from your machine (`npm login` first):
+
+   ```bash
+   pnpm install && pnpm build
+   (cd packages/cli && pnpm pack --pack-destination /tmp/p2v)
+   npm publish /tmp/p2v/pr2video-0.1.0.tgz --access public
+   ```
+
+3. On npmjs.com, open pr2video → Settings → Trusted Publisher, choose GitHub Actions and enter
+   owner `zhjch05`, repository `pr2video`, workflow `release.yml`, environment `npm`.
+4. Same page, Publishing access: "Require two-factor authentication and disallow tokens", so only
+   the workflow (and you, with 2FA) can publish.
+5. Optional: on GitHub, Settings → Environments → `npm` (made by the first workflow run, or create
+   it), add yourself as a required reviewer, so every publish waits for your click.
+6. Tag the hand-published version so the history matches npm: `git tag v0.1.0 && git push origin v0.1.0`.
+   The workflow runs, fails at `npm publish` (0.1.0 already exists) and makes no GitHub release; that
+   one failure is expected. Or skip this tag.
 
 ## Each release
 
-1. Set the same version in `packages/cli/package.json` and `plugin/.claude-plugin/plugin.json`.
-2. `pnpm build`, then try the packed package the way a user installs it:
+1. Set the same version in `packages/cli/package.json` and `plugin/.claude-plugin/plugin.json`, and
+   commit it on `main`.
+2. Optionally try the packed package the way a user installs it:
 
    ```bash
-   (cd packages/cli && pnpm pack --pack-destination /tmp/p2v)
+   pnpm build && (cd packages/cli && pnpm pack --pack-destination /tmp/p2v)
    npm install -g --prefix /tmp/p2v-global /tmp/p2v/pr2video-*.tgz playwright
    PATH=/tmp/p2v-global/bin:$PATH pr2video voices
    ```
 
-3. `cd packages/cli && pnpm publish` (it rewrites `catalog:` and `workspace:*` in the published
-   manifest; both appear only in `devDependencies`).
-4. Tag `v<version>` and push the tag; the plugin installs from the repository.
+3. `git tag v<version> && git push origin main v<version>`. `.github/workflows/release.yml` checks
+   the tag matches both versions, runs lint, types, build and tests, publishes to npm with
+   provenance, and makes a GitHub release with generated notes and the tarball. A tag with a hyphen
+   (`v0.2.0-beta.1`) publishes under npm's `next` tag and as a pre-release.
+4. The plugin installs from the repository's default branch, so users get the new skill as soon as
+   `main` has it; the CLI it calls (`npx pr2video`) updates when npm does.
 
 ## What the package ships
 
