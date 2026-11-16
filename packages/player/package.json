@@ -1,7 +1,7 @@
 {
   "name": "@pr2video/player",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "The pr2video tour player: replays the recordings with zoom, marks, captions and narration, interactively or frame by frame for video.",
   "license": "MIT",
   "type": "module",

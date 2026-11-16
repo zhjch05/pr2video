@@ -12,15 +12,15 @@ Nothing here has been published yet. Before the first release:
 
 ## First release (once)
 
-npm only lets you set up trusted publishing on a package that already exists, so 0.1.0 goes up by hand:
+npm only lets you set up trusted publishing on a package that already exists, so 0.0.1 goes up by hand:
 
 1. Create the repository and push `main`.
-2. Publish 0.1.0 from your machine (`npm login` first):
+2. Publish 0.0.1 from your machine (`npm login` first):
 
    ```bash
    pnpm install && pnpm build
    (cd packages/cli && pnpm pack --pack-destination /tmp/p2v)
-   npm publish /tmp/p2v/pr2video-0.1.0.tgz --access public
+   npm publish /tmp/p2v/pr2video-0.0.1.tgz --access public
    ```
 
 3. On npmjs.com, open pr2video → Settings → Trusted Publisher, choose GitHub Actions and enter
@@ -29,8 +29,8 @@ npm only lets you set up trusted publishing on a package that already exists, so
    the workflow (and you, with 2FA) can publish.
 5. Optional: on GitHub, Settings → Environments → `npm` (made by the first workflow run, or create
    it), add yourself as a required reviewer, so every publish waits for your click.
-6. Tag the hand-published version so the history matches npm: `git tag v0.1.0 && git push origin v0.1.0`.
-   The workflow runs, fails at `npm publish` (0.1.0 already exists) and makes no GitHub release; that
+6. Tag the hand-published version so the history matches npm: `git tag v0.0.1 && git push origin v0.0.1`.
+   The workflow runs, fails at `npm publish` (0.0.1 already exists) and makes no GitHub release; that
    one failure is expected. Or skip this tag.
 
 ## Each release

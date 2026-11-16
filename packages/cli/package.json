@@ -1,6 +1,6 @@
 {
   "name": "pr2video",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Turn a pull request into a narrated tour of the app: an rrweb replay with captions and voice, and an MP4.",
   "keywords": [
     "pull-request",

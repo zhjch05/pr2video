@@ -1,7 +1,7 @@
 {
   "name": "@pr2video/recorder",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Records pr2video scenes in the sandbox's browser with rrweb, and drafts a tour from them.",
   "license": "MIT",
   "type": "module",

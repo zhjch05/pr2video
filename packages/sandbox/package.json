@@ -1,7 +1,7 @@
 {
   "name": "@pr2video/sandbox",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "One Docker container per run for pr2video: the pull request checked out, built and served with its own Docker engine inside.",
   "license": "MIT",
   "type": "module",
