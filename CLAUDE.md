@@ -24,9 +24,13 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
   peer, loaded with a dynamic import, so the CLI installs light.
 - **Erasable TypeScript only** (`erasableSyntaxOnly`): the CLI runs from source with
   `node --conditions=pr2video-source`, which only strips types.
+- **Only `pr2video` is published.** The `@pr2video/*` packages are private to this workspace: the
+  CLI's build (`packages/cli/scripts/bundle.ts`) bundles them and zod into one `dist/cli.js` and
+  copies in what they build for run time (`dist/assets/`: the player bundle and `record.mjs`; `image/`:
+  the sandbox image). The CLI reads those through `src/assets.ts`, never by resolving a package, so
+  the published CLI depends on nothing but its optional peers (Playwright, kokoro-js).
 - Workspace packages export `pr2video-source` → `src` first (a condition of our own: bundlers
-  resolve `development`, and the published packages ship no `src`), so tests and the dev CLI use the source;
-  the published build uses `dist`.
+  resolve `development`), so tests, the dev CLI and the CLI's bundle use the source.
 
 ## Before calling something done
 

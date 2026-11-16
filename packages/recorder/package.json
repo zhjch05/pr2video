@@ -1,24 +1,9 @@
 {
   "name": "@pr2video/recorder",
+  "private": true,
   "version": "0.1.0",
   "description": "Records pr2video scenes in the sandbox's browser with rrweb, and drafts a tour from them.",
-  "keywords": [
-    "pull-request",
-    "video",
-    "rrweb",
-    "tour",
-    "code-review"
-  ],
   "license": "MIT",
-  "homepage": "https://github.com/zhjch05/pr2video#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/zhjch05/pr2video.git",
-    "directory": "packages/recorder"
-  },
-  "bugs": {
-    "url": "https://github.com/zhjch05/pr2video/issues"
-  },
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -34,9 +19,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/bundle.ts",
     "check-types": "tsc --noEmit",

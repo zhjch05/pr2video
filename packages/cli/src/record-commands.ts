@@ -4,11 +4,12 @@
  */
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { draftTour, type SceneResult, scenesFileSchema, scenesProblems } from "@pr2video/recorder"
 import { docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
 import type { Tour, TourScene } from "@pr2video/tour"
+
+import { assetPath } from "./assets.ts"
 
 export type RecordFlags = {
   json?: boolean | undefined
@@ -82,7 +83,7 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
     const message = problems.map((p) => `${p.path}: ${p.message}`).join("\n")
     throw new Error(`the scenes file has problems; fix them first:\n${message}`)
   }
-  const recorder = fileURLToPath(import.meta.resolve("@pr2video/recorder/record.mjs"))
+  const recorder = await assetPath("record.mjs")
   try {
     await readFile(recorder)
   } catch {

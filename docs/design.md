@@ -26,7 +26,9 @@ tool cannot enforce on someone else's model.
   self-contained page around it; `frame.ts` is the pure frame state both modes draw.
 - `@pr2video/recorder`: the scenes format and check, the recorder that runs inside the sandbox
   (bundled to one `record.mjs`; Playwright and rrweb come from the image), and `tour draft`.
+- `@pr2video/sandbox`: the Docker sandbox, its journal, replay and saved data.
 - `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
+  The only published package: its build bundles the five others into it.
 - `plugin/`: the Claude Code plugin: the skill, its references, the `/pr2video` command.
 
 ## The sandbox

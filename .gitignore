@@ -4,3 +4,5 @@ dist/
 *.log
 .DS_Store
 .env
+packages/cli/image/
+packages/cli/README.md

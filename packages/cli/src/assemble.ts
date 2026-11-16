@@ -5,11 +5,12 @@
  */
 import { readFile } from "node:fs/promises"
 import { dirname, extname, join } from "node:path"
-import { fileURLToPath } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { type PlayerData, tourHtml } from "@pr2video/player"
 import { screenshotMoments, tourProblems, tourSchema } from "@pr2video/tour"
+
+import { type Asset, assetPath } from "./assets.ts"
 
 const AUDIO_TYPES: Record<string, string> = {
   ".mp3": "audio/mpeg",
@@ -61,15 +62,15 @@ export async function playerData(tourPath: string): Promise<PlayerData> {
 
 /** The player's bundled script and styles, built by `@pr2video/player`. */
 export async function playerBundle(): Promise<{ js: string; css: string }> {
-  const read = async (name: string) => {
-    const path = fileURLToPath(import.meta.resolve(`@pr2video/player/${name}`))
+  const read = async (name: Asset) => {
+    const path = await assetPath(name)
     try {
       return await readFile(path, "utf8")
     } catch {
       throw new Error(`the player bundle is missing (${path}); run \`pnpm build\` first`)
     }
   }
-  return { js: await read("bundle.js"), css: await read("bundle.css") }
+  return { js: await read("player.js"), css: await read("player.css") }
 }
 
 export async function buildHtml(tourPath: string): Promise<{ html: string; data: PlayerData }> {

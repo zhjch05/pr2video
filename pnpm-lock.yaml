@@ -154,6 +154,10 @@ importers:
 
   packages/cli:
     dependencies:
+      kokoro-js:
+        specifier: ^1.2.0
+        version: 1.2.1
+    devDependencies:
       '@pr2video/player':
         specifier: workspace:*
         version: link:../player
@@ -169,13 +173,12 @@ importers:
       '@pr2video/voice':
         specifier: workspace:*
         version: link:../voice
-      kokoro-js:
-        specifier: ^1.2.0
-        version: 1.2.1
-    devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
       playwright:
         specifier: 'catalog:'
         version: 1.63.0
