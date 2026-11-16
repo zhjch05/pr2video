@@ -21,8 +21,10 @@ marks what changed, and holds while the caption is read aloud.
 ## Focus, zoom and markers
 
 - `focus` is the element or section the caption is about. Most scenes have one.
-- `zoom`: `1.5` for a section or a dialog, `2` for a small control, `1` (with `focus: null`) only
-  when the caption is about the whole page.
+- `zoom` is `1`, `1.5` or `2`: `2` for a small control, `1.5` for a section or a field or two of a
+  form, `1` for a whole dialog or when the caption is about the page (then `focus: null`, or the
+  dialog as focus, framed but not magnified). The focus must fit magnified with a margin: `tour
+  check` warns when it will not.
 - `markers`: up to four, the exact things the caption names, each with a `tone`: `added`, `removed`,
   `changed` for what the pull request did, `note` for anything else worth pointing at. Give a short
   `label` when there are two or more; otherwise `null`.
@@ -56,7 +58,8 @@ marks what changed, and holds while the caption is read aloud.
 ```
 
 `pr2video tour draft` writes all of this from the head's recordings; you edit captions, order and
-marks. `pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
+zoom. Focus and marks come from `scenes.json`: change them there, since drafting again (after
+re-recording) keeps what you wrote in the tour but takes focus and marks fresh. `pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
 `pr2video tour check` also checks every recording and clip it names still exists: after
 re-recording, draft again rather than keeping old timings.
 

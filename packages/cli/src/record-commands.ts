@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 
 import { draftTour, type SceneResult, scenesFileSchema, scenesProblems } from "@pr2video/recorder"
 import { docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
+import type { Tour, TourScene } from "@pr2video/tour"
 
 export type RecordFlags = {
   json?: boolean | undefined
@@ -17,15 +18,19 @@ export type RecordFlags = {
   only?: string | undefined
   output?: string | undefined
   compare?: boolean | undefined
+  fresh?: boolean | undefined
 }
 
 export const RECORD_HELP = `Recording:
   pr2video scenes check [<scenes.json>] [--json]  Validate a scenes file (default .pr2video/<run>/scenes.json)
-  pr2video record [--side head|base] [--scenes <file>] [--only <scene>]
+  pr2video record [--side head|base] [--scenes <file>] [--only <id,id>]
                                                 Record the scenes in the sandbox's browser
-  pr2video tour draft [--compare] [--scenes <file>] [-o <tour.json>]
+  pr2video tour draft [--compare] [--fresh] [--scenes <file>] [-o <tour.json>]
                                                 A first tour from the head's recordings; --compare puts
-                                                each checkpoint's base recording before it ("before")`
+                                                each checkpoint's base recording before it ("before").
+                                                Drafting over an existing tour keeps its scenes, order,
+                                                titles, labels, captions and zooms, and takes recordings,
+                                                timings, focus and marks fresh; --fresh starts over`
 
 async function readJson(path: string): Promise<unknown> {
   try {
@@ -119,6 +124,10 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
       )
       signIn = { ...signIn, screenshot: join(local, signIn.screenshot) }
     }
+    // A sign-in that worked this time clears the screenshot of one that did not.
+    if (!signIn)
+      for (const name of await readdir(local))
+        if (/^\.auth-.*-stopped\.png$/.test(name)) await rm(join(local, name), { force: true })
     for (const entry of await readdir(incoming, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
       await rm(join(local, entry.name), { recursive: true, force: true })
@@ -191,14 +200,86 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
   })
   if (!tour.scenes.length)
     throw new Error("nothing was recorded on the head: run `pr2video record` first")
-  await writeFile(out, `${JSON.stringify(tour, null, 2)}\n`)
+  const previous = flags.fresh ? null : await readJson(out).catch(() => null)
+  const merged = previous
+    ? keepWritten(tour, previous)
+    : { tour, kept: [], notInTour: [], gone: [] }
+  await writeFile(out, `${JSON.stringify(merged.tour, null, 2)}\n`)
   if (flags.json)
     console.log(
-      JSON.stringify({ ok: true, tour: out, scenes: tour.scenes.length, skipped }, null, 2),
+      JSON.stringify(
+        {
+          ok: true,
+          tour: out,
+          scenes: merged.tour.scenes.length,
+          skipped,
+          kept: merged.kept,
+          notInTour: merged.notInTour,
+          gone: merged.gone,
+        },
+        null,
+        2,
+      ),
     )
   else {
-    console.log(`${out} (${tour.scenes.length} scenes)`)
+    console.log(`${out} (${merged.tour.scenes.length} scenes)`)
     for (const s of skipped) console.log(`  left out ${s.scene}: ${s.reason}`)
+    if (previous) {
+      console.log(
+        `  kept the captions, order and zoom of ${merged.kept.length} scene(s) from the tour that was there`,
+      )
+      if (merged.notInTour.length)
+        console.log(
+          `  drafted but not in your tour (deleted, or new): ${merged.notInTour.join(", ")}; --fresh starts over`,
+        )
+      for (const id of merged.gone) console.log(`  removed ${id}: no longer recorded`)
+    }
   }
   return 0
+}
+
+/**
+ * A new draft laid over a tour already written: the written tour's scenes,
+ * in its order, keep what a person wrote (label, caption, zoom; the title and
+ * summary) and take what the recordings decide (recording, viewport, timings,
+ * focus and marks: those name nodes of that recording) from the draft.
+ */
+export function keepWritten(
+  draft: Tour,
+  previous: unknown,
+): { tour: Tour; kept: Array<string>; notInTour: Array<string>; gone: Array<string> } {
+  const old = previous as Partial<Tour> | null
+  if (!old || !Array.isArray(old.scenes)) return { tour: draft, kept: [], notInTour: [], gone: [] }
+  const drafted = new Map(draft.scenes.map((s) => [s.id, s]))
+  const scenes: Array<TourScene> = []
+  const kept: Array<string> = []
+  const gone: Array<string> = []
+  for (const written of old.scenes) {
+    const fresh = drafted.get(written.id)
+    if (!fresh) {
+      gone.push(written.id)
+      continue
+    }
+    scenes.push({
+      ...fresh,
+      label: written.label ?? fresh.label,
+      caption: written.caption ?? fresh.caption,
+      zoom: written.zoom ?? fresh.zoom,
+    })
+    kept.push(written.id)
+  }
+  const ids = new Set(kept)
+  const notInTour = draft.scenes.filter((s) => !ids.has(s.id)).map((s) => s.id)
+  if (!scenes.length) return { tour: draft, kept: [], notInTour: [], gone }
+  return {
+    tour: {
+      ...draft,
+      title: old.title || draft.title,
+      summary: old.summary ?? draft.summary,
+      scenes,
+    },
+    kept,
+    notInTour,
+    gone,
+  }
 }

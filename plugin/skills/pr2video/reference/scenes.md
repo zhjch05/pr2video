@@ -29,7 +29,7 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
       { "fill": { "label": "Email" }, "value": "admin@example.com" },
       { "fill": { "label": "Password" }, "value": "password" },
       { "click": { "role": "button", "name": "Sign in" } },
-      { "waitFor": { "role": "navigation" } }
+      { "waitFor": { "text": "Signed in as Admin" } } // something every signed-in page shows
     ] }
   },
   "scenes": [{
@@ -82,3 +82,9 @@ nothing else names it.
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
 - Captions are the tour's first draft: say what the reviewer sees and why it matters, in one or two
   plain sentences (see tour.md).
+
+## Signing in
+
+The last sign-in step should wait for something that shows on every signed-in page, whatever else
+appears: a first-run welcome dialog or a banner can cover the navigation. If sign-in stops, the
+recorder saves a screenshot of where it stopped (`recordings/<side>/.auth-<role>-stopped.png`).

@@ -158,4 +158,9 @@ describe("tourProblems", () => {
     ])
     expect(tourProblems({ version: 1 }).length).toBeGreaterThan(0)
   })
+
+  it("names the zooms there are", () => {
+    const tour = { version: 1, title: "T", summary: "", scenes: [{ ...scene(), zoom: 1.3 }] }
+    expect(tourProblems(tour)).toEqual([{ path: "scenes.0.zoom", message: "zoom is 1, 1.5 or 2" }])
+  })
 })

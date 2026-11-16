@@ -56,11 +56,12 @@ pr2video sandbox up [--head <ref>] [--base <ref>]   One container per run: head 
 pr2video sandbox exec [--record] -- <command>        Run inside the sandbox
 pr2video sandbox start <name> --port <n> -- <cmd>    Start a server and wait until it answers
 pr2video sandbox replay                              Re-run the recorded setup on the base commit
-pr2video sandbox ps | logs | stop | journal | status | ls | down
+pr2video sandbox cp [--record] <host> <sandbox>     Copy a file in (journaled with --record)
+pr2video sandbox ps | logs | stop | journal [drop <n>] | status | ls | down
 
 pr2video scenes check [<scenes.json>]                Validate the scenes to film
-pr2video record [--side head|base] [--only <scene>]  Record them in the sandbox's browser (rrweb)
-pr2video tour draft                                  A first tour.json from the head's recordings
+pr2video record [--side head|base] [--only <id,id>]  Record them in the sandbox's browser (rrweb)
+pr2video tour draft [--compare] [--fresh]            A tour.json from the recordings; keeps your captions
 ```
 
 ## The sandbox

@@ -85,3 +85,51 @@ describe("shellCommand", () => {
     expect(shellCommand(["node", "server.js", "--port=3001"])).toBe("node server.js --port=3001")
   })
 })
+
+describe("keepWritten", () => {
+  const scene = (id: string, caption: string, atMs: number) => ({
+    id,
+    label: id.toUpperCase(),
+    events: `head/${id}/events.json`,
+    viewport: { width: 1280, height: 800 },
+    startMs: 0,
+    endMs: atMs + 1_000,
+    atMs,
+    caption,
+    focus: null,
+    zoom: 1 as const,
+    markers: [],
+  })
+
+  it("keeps what was written and takes the recordings' timings", async () => {
+    const { keepWritten } = await import("../src/record-commands.ts")
+    const draft = {
+      version: 1 as const,
+      title: "Draft",
+      summary: "",
+      voice: "none",
+      scenes: [scene("a", "TODO", 4_000), scene("b", "TODO", 5_000), scene("c", "TODO", 6_000)],
+    }
+    const written = {
+      version: 1,
+      title: "Mine",
+      summary: "Why it matters.",
+      scenes: [
+        { ...scene("c", "C first.", 1), zoom: 2 },
+        scene("a", "Then A.", 1),
+        scene("gone", "Was recorded once.", 1),
+      ],
+    }
+    const { tour, kept, notInTour, gone } = keepWritten(draft, written)
+    expect(tour.title).toBe("Mine")
+    expect(tour.scenes.map((s) => [s.id, s.caption, s.atMs, s.zoom])).toEqual([
+      ["c", "C first.", 6_000, 2],
+      ["a", "Then A.", 4_000, 1],
+    ])
+    expect({ kept, notInTour, gone }).toEqual({
+      kept: ["c", "a"],
+      notInTour: ["b"],
+      gone: ["gone"],
+    })
+  })
+})

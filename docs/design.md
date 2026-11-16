@@ -55,7 +55,8 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
   address pools are used up, the network falls back to a `10.217.x.0/24` subnet.
 - `exec` passes the command in an environment variable and `eval`s it under `bash -l`, so quoting
   survives. `start` runs it under `setsid nohup`, so `stop` kills the whole process group.
-- The journal (`.pr2video/<run>/journal.jsonl`) holds only `--record`ed steps. `replay` stops every
+- The journal (`.pr2video/<run>/journal.jsonl`) holds only `--record`ed steps that succeeded, and
+  `cp --record` copies (the file is kept under the run's `files/`). `replay` stops every
   background process, rewrites `/work/head` to `/work/base`, and stops at the first failure. Making
   steps replayable is the agent's job (`plugin/skills/pr2video/reference/setup.md`).
 - Not yet: the seeded-data cache (tarballs of service data directories).

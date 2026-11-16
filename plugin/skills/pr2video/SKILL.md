@@ -46,7 +46,7 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    layout) needs a phone viewport. Give one scene its own `viewport` to show the same screen at
    several widths. Look at each checkpoint's screenshot (`recordings/head/<scene>/<checkpoint>.png`).
    A scene that stopped says where and why in `result.json` (with `stopped.png`): fix the step and
-   record it again with `--only <scene>`; other scenes' recordings are kept. Then record the base:
+   record it again with `--only <scene>` (or `--only a,b`); other scenes' recordings are kept. Then record the base:
 
    ```bash
    pr2video sandbox replay              # the recorded setup, on the base commit
@@ -65,8 +65,11 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    pr2video render .pr2video/<run>/tour.json --frame 4000,12000   # stills, exactly as the video draws them
    ```
 
-   With `--compare`, write each "before" caption from the base screenshot: `tour check` refuses the
-   draft's TODO. Look at a few `--frame` stills before rendering the MP4; the replay can differ from
+   With `--compare`, delete each "before" scene where the base looks the same as the head (a step
+   that only types, say), and write the rest of the "before" captions from the base screenshot:
+   `tour check` refuses the draft's TODO. Drafting again after re-recording keeps the scenes, order,
+   captions and zooms you wrote and takes fresh timings, focus and marks; change focus and marks in
+   `scenes.json`, where they survive re-recording (`--fresh` starts the tour over). Look at a few `--frame` stills before rendering the MP4; the replay can differ from
    the screenshots (see tour.md), and a still takes seconds where the MP4 takes minutes.
 
 5. **Narrate** with a free local voice (no key; `auto` picks the best one installed):

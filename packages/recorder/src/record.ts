@@ -7,9 +7,9 @@
  * screenshot. A step that fails ends the scene there: what was recorded is
  * kept, and the result says where and why.
  *
- *   node record.mjs --scenes scenes.json --side head --out <dir> [--only <id>] [--rrweb <umd>]
+ *   node record.mjs --scenes scenes.json --side head --out <dir> [--only <id,id>] [--rrweb <umd>]
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { parseArgs } from "node:util"
@@ -82,7 +82,10 @@ function startRecording(appOrigin: string): void {
     collectFonts: true,
     recordCanvas: false,
     maskInputOptions: { password: true },
-    sampling: { mousemove: 40, scroll: 120, input: "last" },
+    // Input sampling stays "all": "last" records a field's value only on
+    // `change` (when it loses focus), so text typed before a checkpoint
+    // was missing from the replay.
+    sampling: { mousemove: 40, scroll: 120 },
   })
   setInterval(() => w.__rrwebFlushNow?.(), 250)
   addEventListener("pagehide", () => w.__rrwebFlushNow?.(), true)
@@ -211,6 +214,7 @@ async function signIn(browser: Browser, role: string): Promise<string> {
       }
     }
     await settle(page)
+    await rm(join(out, `.auth-${role}-stopped.png`), { force: true })
     const path = join(out, `.auth-${role}.json`)
     await context.storageState({ path })
     return path
@@ -410,7 +414,11 @@ async function inlineFonts(context: BrowserContext, json: string): Promise<strin
  * server compiles a page on its first visit, which can take longer than a step waits.
  */
 async function warmUp(browser: Browser, scenes: ReadonlyArray<Scene>, auth: Map<string, string>) {
+  const seen = new Set<string>()
   for (const scene of scenes) {
+    const key = `${scene.role ?? ""} ${absolute(scene.url)}`
+    if (seen.has(key)) continue
+    seen.add(key)
     const storageState = scene.role ? auth.get(scene.role) : undefined
     const context = await browser.newContext({
       viewport: scene.viewport ?? file.viewport,
@@ -430,7 +438,8 @@ async function warmUp(browser: Browser, scenes: ReadonlyArray<Scene>, auth: Map<
 const browser = await chromium.launch()
 try {
   await mkdir(out, { recursive: true })
-  const scenes = file.scenes.filter((s) => !values.only || s.id === values.only)
+  const only = values.only?.split(",").map((id) => id.trim())
+  const scenes = file.scenes.filter((s) => !only || only.includes(s.id))
   const auth = new Map<string, string>()
   try {
     for (const role of new Set(scenes.flatMap((s) => (s.role ? [s.role] : []))))

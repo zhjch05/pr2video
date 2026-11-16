@@ -22,7 +22,9 @@ export type SandboxRecord = z.infer<typeof sandboxRecordSchema>
 
 /**
  * One recorded setup step. `exec` ran to completion; `start` left a process
- * running (a server, a watcher), optionally waited for until `port` answered.
+ * running (a server, a watcher), optionally waited for until `port` answered;
+ * `copy` put a host file in the sandbox, from a copy the run keeps so replay
+ * does not depend on the host file still being there.
  */
 export const journalEntrySchema = z.discriminatedUnion("kind", [
   z.object({
@@ -40,6 +42,13 @@ export const journalEntrySchema = z.discriminatedUnion("kind", [
     cwd: z.string(),
     port: z.number().nullable(),
     path: z.string().nullable().optional(),
+    at: z.string(),
+  }),
+  z.object({
+    kind: z.literal("copy"),
+    /** The copy kept under the run's `files/`, relative to the run directory. */
+    from: z.string(),
+    to: z.string(),
     at: z.string(),
   }),
 ])
@@ -82,6 +91,18 @@ export async function appendJournal(repo: string, run: string, entry: JournalEnt
   await appendFile(join(runDir(repo, run), "journal.jsonl"), `${JSON.stringify(entry)}\n`)
 }
 
+/** Removes step `n` (1-based) from the journal; returns the step removed. */
+export async function dropJournalStep(repo: string, run: string, n: number): Promise<JournalEntry> {
+  const journal = await readJournal(repo, run)
+  const [dropped] = Number.isInteger(n) && n >= 1 ? journal.splice(n - 1, 1) : []
+  if (!dropped) throw new Error(`no step ${n}: the journal has ${journal.length} step(s)`)
+  await writeFile(
+    join(runDir(repo, run), "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  )
+  return dropped
+}
+
 export async function readJournal(repo: string, run: string): Promise<Array<JournalEntry>> {
   let text = ""
   try {
@@ -101,6 +122,7 @@ export async function readJournal(repo: string, run: string): Promise<Array<Jour
  */
 export function rebase(entry: JournalEntry, fromDir: string, toDir: string): JournalEntry {
   const move = (text: string) => text.split(fromDir).join(toDir)
+  if (entry.kind === "copy") return { ...entry, to: move(entry.to) }
   return { ...entry, cwd: move(entry.cwd), command: move(entry.command) }
 }
 

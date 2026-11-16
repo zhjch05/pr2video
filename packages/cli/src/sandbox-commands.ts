@@ -5,7 +5,9 @@
 import {
   copyIn,
   down,
+  dropJournalStep,
   exec,
+  type JournalEntry,
   list,
   logs,
   processes,
@@ -38,18 +40,28 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox up [--head <ref>] [--base <ref> | --no-base] [--run <id>]
                                                 Check out head (/work/head) and base (/work/base) in a new sandbox
   pr2video sandbox exec [--cwd <dir>] [--record] [--timeout <s>] -- <command>
-                                                Run a command inside; --record adds it to the setup journal
+                                                Run a command inside; --record adds it to the setup
+                                                journal if it succeeds
   pr2video sandbox start <name> [--port <n> [--path <p>]] [--cwd <dir>] [--record] -- <command>
                                                 Start a background process (a server); --port waits until
                                                 <path> (default /) answers with a status below 500
   pr2video sandbox wait <port> [--path <p>] [--name <process>] [--timeout <s>]
-  pr2video sandbox cp <host path> <sandbox path>  Copy a file or folder in (a seed script, fixtures)
+  pr2video sandbox cp [--record] <host path> <sandbox path>
+                                                Copy a file or folder in (a seed script, fixtures); --record
+                                                keeps a copy in the run and journals it, so replay copies it too
   pr2video sandbox ps | logs <name> [--tail <n>] | stop <name>
   pr2video sandbox journal                      The recorded setup steps
+  pr2video sandbox journal drop <n>             Remove step n (a wrong step, or one to record again)
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
   pr2video sandbox status | ls | down`
+
+function describeStep(step: JournalEntry): string {
+  if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
+  if (step.kind === "exec") return `exec (exit ${step.exitCode}) ${step.cwd}$ ${step.command}`
+  return `start ${step.name}${step.port ? ` :${step.port}` : ""} ${step.cwd}$ ${step.command}`
+}
 
 /**
  * The command after `--`, as one shell string. One argument is taken as a
@@ -124,6 +136,17 @@ export async function sandboxCommand(
       })
       answer({ ok: result.exitCode === 0, ...result })
       if (!json && result.timedOut) console.error(`pr2video: timed out after ${result.ms}ms`)
+      if (!json) {
+        const steps = flags.record ? (await readJournal(record.repo, record.run)).length : 0
+        console.error(
+          `pr2video: exit ${result.exitCode ?? "none"} in ${(result.ms / 1000).toFixed(1)}s` +
+            (result.recorded
+              ? `, recorded as step ${steps}`
+              : flags.record
+                ? ", not recorded (it failed): fix it and run it again"
+                : ""),
+        )
+      }
       return result.exitCode ?? 1
     }
     case "start": {
@@ -160,9 +183,9 @@ export async function sandboxCommand(
       const [from, to] = rest
       if (!from || !to) throw new Error("usage: pr2video sandbox cp <host path> <sandbox path>")
       const record = await resolveRecord(cwd, flags.run)
-      await copyIn(record, from, to)
-      answer({ ok: true, from, to })
-      say(`copied ${from} to ${to}`)
+      await copyIn(record, from, to, { record: flags.record })
+      answer({ ok: true, from, to, recorded: Boolean(flags.record) })
+      say(`copied ${from} to ${to}${flags.record ? " (recorded)" : ""}`)
       return 0
     }
     case "stop": {
@@ -192,14 +215,15 @@ export async function sandboxCommand(
     }
     case "journal": {
       const record = await resolveRecord(cwd, flags.run)
+      if (rest[0] === "drop") {
+        const dropped = await dropJournalStep(record.repo, record.run, integer(rest[1], "the step"))
+        answer({ ok: true, dropped })
+        say(`dropped step ${rest[1]}: ${describeStep(dropped)}`)
+        return 0
+      }
       const journal = await readJournal(record.repo, record.run)
       answer({ steps: journal })
-      for (const [i, step] of journal.entries())
-        say(
-          step.kind === "exec"
-            ? `${i + 1}. exec (exit ${step.exitCode}) ${step.cwd}$ ${step.command}`
-            : `${i + 1}. start ${step.name}${step.port ? ` :${step.port}` : ""} ${step.cwd}$ ${step.command}`,
-        )
+      for (const [i, step] of journal.entries()) say(`${i + 1}. ${describeStep(step)}`)
       if (!journal.length) say("no recorded steps; add --record to exec and start")
       return 0
     }
@@ -212,9 +236,7 @@ export async function sandboxCommand(
         onStep: json
           ? undefined
           : (step) =>
-              say(
-                `${step.ok ? "ok  " : "FAIL"} ${step.entry.kind} ${step.entry.kind === "start" ? step.entry.name : step.entry.command}: ${step.detail}`,
-              ),
+              say(`${step.ok ? "ok  " : "FAIL"} ${describeStep(step.entry)}: ${step.detail}`),
       })
       answer(result)
       return result.ok ? 0 : 1

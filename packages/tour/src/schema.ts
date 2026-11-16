@@ -53,7 +53,9 @@ export const sceneSchema = z
     shotMs: z.number().nonnegative().nullable().optional(),
     caption: z.string().min(1),
     focus: targetSchema.nullable(),
-    zoom: z.union([z.literal(1), z.literal(1.5), z.literal(2)]),
+    zoom: z.union([z.literal(1), z.literal(1.5), z.literal(2)], {
+      error: "zoom is 1, 1.5 or 2",
+    }),
     markers: z.array(markerSchema),
     /** The caption read aloud, when narrated. */
     audio: z.string().nullable().optional(),

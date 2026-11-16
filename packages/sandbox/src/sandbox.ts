@@ -14,8 +14,8 @@
  */
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
-import { readdir, readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { cp, readdir, readFile, writeFile } from "node:fs/promises"
+import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
@@ -300,6 +300,8 @@ export type ExecResult = {
   stdout: string
   stderr: string
   log: string
+  /** Whether the step went into the journal: asked for with `record`, and it succeeded. */
+  recorded: boolean
 }
 
 export async function exec(
@@ -334,7 +336,9 @@ export async function exec(
     log,
     `$ ${command}\n# cwd ${cwd}, exit ${result.code}, ${ms}ms\n\n${result.stdout}\n--- stderr ---\n${result.stderr}`,
   )
-  if (options.record)
+  // A failed step is not journaled: replay would stop on it.
+  const recorded = Boolean(options.record) && result.code === 0
+  if (recorded)
     await appendJournal(record.repo, record.run, {
       kind: "exec",
       command,
@@ -346,6 +350,7 @@ export async function exec(
   return {
     exitCode: result.code,
     timedOut: result.timedOut,
+    recorded,
     ms,
     stdout: tail(result.stdout),
     stderr: tail(result.stderr),
@@ -512,7 +517,13 @@ export async function replay(
   for (const original of journal) {
     const entry = side === "base" && base ? rebase(original, record.head.dir, base.dir) : original
     let step: ReplayStep
-    if (entry.kind === "exec") {
+    if (entry.kind === "copy") {
+      const from = join(runDir(record.repo, record.run), entry.from)
+      step = await copyIn(record, from, entry.to).then(
+        () => ({ entry, ok: true, detail: "copied" }),
+        (error: Error) => ({ entry, ok: false, detail: error.message }),
+      )
+    } else if (entry.kind === "exec") {
       const result = await exec(record, entry.command, {
         cwd: entry.cwd,
         onOutput: options.onOutput,
@@ -545,12 +556,30 @@ export async function replay(
   return { ok: true, steps }
 }
 
-/** Copies a host file or folder into the sandbox, creating the folder it goes in. */
-export async function copyIn(record: SandboxRecord, from: string, to: string): Promise<void> {
+/**
+ * Copies a host file or folder into the sandbox, creating the folder it goes
+ * in. With `record`, the run keeps its own copy under `files/` and journals
+ * the step, so replay copies the same content.
+ */
+export async function copyIn(
+  record: SandboxRecord,
+  from: string,
+  to: string,
+  options: { record?: boolean | undefined } = {},
+): Promise<void> {
   if (!to.startsWith("/")) throw new Error(`the sandbox path must be absolute (got "${to}")`)
   const parent = to.endsWith("/") ? to : to.slice(0, to.lastIndexOf("/")) || "/"
   await inside(record.container, `mkdir -p '${parent.replace(/'/g, "")}'`)
   await dockerOrThrow(["cp", from, `${record.container}:${to}`])
+  if (!options.record) return
+  const kept = join("files", `${Date.now()}-${basename(from.replace(/\/+$/, ""))}`)
+  await cp(from, join(runDir(record.repo, record.run), kept), { recursive: true })
+  await appendJournal(record.repo, record.run, {
+    kind: "copy",
+    from: kept,
+    to,
+    at: new Date().toISOString(),
+  })
 }
 
 export async function down(record: SandboxRecord): Promise<void> {

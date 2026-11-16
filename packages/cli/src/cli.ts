@@ -180,6 +180,7 @@ async function main() {
       frame: { type: "string" },
       png: { type: "string" },
       compare: { type: "boolean" },
+      fresh: { type: "boolean" },
       fps: { type: "string" },
       height: { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -302,9 +303,10 @@ async function main() {
       )
       return
     }
+    const width = Math.max(4, ...timeline.scenes.map((e) => e.scene.label.length))
     for (const e of timeline.scenes)
       console.log(
-        `${e.scene.label.padEnd(4)} ${(e.offsetMs / 1000).toFixed(1).padStart(6)}s  +${(e.durationMs / 1000).toFixed(1)}s  ${e.scene.caption}`,
+        `${e.scene.label.padEnd(width)} ${(e.offsetMs / 1000).toFixed(1).padStart(6)}s  +${(e.durationMs / 1000).toFixed(1)}s  ${e.scene.caption}`,
       )
     console.log(
       `total ${(timeline.totalMs / 1000).toFixed(1)}s${flags.vtt ? `, captions in ${flags.vtt}` : ""}`,

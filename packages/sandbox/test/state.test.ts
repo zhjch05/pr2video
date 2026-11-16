@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest"
 import { validRun } from "../src/sandbox.ts"
 import {
   appendJournal,
+  dropJournalStep,
   type JournalEntry,
   readJournal,
   rebase,
@@ -53,6 +54,40 @@ describe("journal", () => {
       at: "t",
     })
     expect((await readJournal(repo, "r1")).map((e) => e.kind)).toEqual(["exec", "start"])
+  })
+
+  it("drops one step by its number, and refuses a number it does not have", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "pr2video-journal-"))
+    await mkdir(runDir(repo, "r1"), { recursive: true })
+    for (const command of ["a", "b", "c"])
+      await appendJournal(repo, "r1", {
+        kind: "exec",
+        command,
+        cwd: "/",
+        exitCode: 0,
+        ms: 1,
+        at: "t",
+      })
+    expect(await dropJournalStep(repo, "r1", 2)).toMatchObject({ command: "b" })
+    expect((await readJournal(repo, "r1")).map((e) => e.kind === "exec" && e.command)).toEqual([
+      "a",
+      "c",
+    ])
+    await expect(dropJournalStep(repo, "r1", 0)).rejects.toThrow("no step 0")
+    await expect(dropJournalStep(repo, "r1", 3)).rejects.toThrow("the journal has 2 step(s)")
+  })
+
+  it("moves a copy's destination to the base, not its kept file", () => {
+    const entry: JournalEntry = {
+      kind: "copy",
+      from: "files/1-seed.sh",
+      to: "/work/head/seed.sh",
+      at: "t",
+    }
+    expect(rebase(entry, "/work/head", "/work/base")).toMatchObject({
+      from: "files/1-seed.sh",
+      to: "/work/base/seed.sh",
+    })
   })
 })
 
