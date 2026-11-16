@@ -232,6 +232,7 @@ async function completeObjects(repo: string, commits: Array<string>, log: Log): 
     child.on("close", (code) =>
       code === 0 ? done() : fail(new Error(`fetching the missing files failed: ${stderr.trim()}`)),
     )
+    child.stdin.on("error", () => {}) // EPIPE if git exits early; its exit code reports it
     child.stdin.end(`${missing.join("\n")}\n`)
   })
 }

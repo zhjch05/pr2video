@@ -53,6 +53,9 @@ export function docker(
       if (timer) clearTimeout(timer)
       resolve({ code, stdout, stderr, timedOut })
     })
+    // docker exiting before it reads its input (a bad flag, no daemon) makes the write fail
+    // with EPIPE; the exit code and stderr already say what happened.
+    child.stdin.on("error", () => {})
     child.stdin.end(options.stdin ?? "")
   })
 }

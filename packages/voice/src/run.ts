@@ -21,6 +21,9 @@ export function run(
     })
     child.on("error", reject)
     child.on("close", (code) => resolve({ code, stdout, stderr }))
+    // A command that exits (or never starts) before reading its input makes the write fail
+    // with EPIPE; its exit code and stderr already say what happened.
+    child.stdin.on("error", () => {})
     child.stdin.end(stdin ?? "")
   })
 }
