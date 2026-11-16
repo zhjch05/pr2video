@@ -22,6 +22,7 @@ import {
 
 import { buildHtml } from "./assemble.ts"
 import { importBetterReview } from "./import.ts"
+import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
 import { renderVideo } from "./video.ts"
 
 const HELP = `pr2video - turn a pull request into a narrated tour
@@ -37,6 +38,8 @@ Usage:
                                                 The tour as one self-contained HTML file and/or an MP4
   pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
 
+${SANDBOX_HELP}
+
 Voice options:
   --voice <id>      ${VOICE_IDS.join(" | ")} | auto (default: auto, the best one available)
   --speaker <name>  The voice's own speaker (say -v name, kokoro voice id, espeak voice)
@@ -48,7 +51,7 @@ Environment:
   PR2VIDEO_CACHE    Where downloaded voice models are cached (default ~/.cache/pr2video)
 `
 
-type Flags = {
+type Flags = SandboxFlags & {
   json?: boolean
   voice?: string
   speaker?: string
@@ -112,6 +115,16 @@ async function main() {
       model: { type: "string" },
       output: { type: "string", short: "o" },
       vtt: { type: "string" },
+      run: { type: "string" },
+      cwd: { type: "string" },
+      record: { type: "boolean" },
+      timeout: { type: "string" },
+      head: { type: "string" },
+      base: { type: "string" },
+      "no-base": { type: "boolean" },
+      port: { type: "string" },
+      tail: { type: "string" },
+      name: { type: "string" },
       html: { type: "string" },
       mp4: { type: "string" },
       fps: { type: "string" },
@@ -231,6 +244,10 @@ async function main() {
       `total ${(timeline.totalMs / 1000).toFixed(1)}s${flags.vtt ? `, captions in ${flags.vtt}` : ""}`,
     )
     return
+  }
+
+  if (command === "sandbox") {
+    process.exit(await sandboxCommand(rest, flags))
   }
 
   if (command === "render") {

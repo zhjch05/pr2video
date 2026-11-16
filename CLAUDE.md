@@ -17,6 +17,9 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
 - **A `page.evaluate` callback runs in the browser**: it can use nothing from the Node module around it.
 - The player's bundle (`dist/bundle/`) must be built before `render`; `pnpm test` builds it first.
   `PR2VIDEO_TEST_MP4=1 pnpm test` also renders a real MP4 (needs ffmpeg and Chromium).
+- **The pull request's code runs only in the sandbox.** No CLI command runs repository code on the
+  host. The image's tag is a hash of `packages/sandbox/image/`, so editing it builds a new image.
+  `PR2VIDEO_TEST_DOCKER=1 pnpm test` runs a real sandbox end to end.
 - **Voices are free and local.** No voice may need an account or a key. `kokoro-js` is an optional
   peer, loaded with a dynamic import, so the CLI installs light.
 - **Erasable TypeScript only** (`erasableSyntaxOnly`): the CLI runs from source with

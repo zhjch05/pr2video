@@ -157,6 +157,9 @@ importers:
       '@pr2video/player':
         specifier: workspace:*
         version: link:../player
+      '@pr2video/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@pr2video/tour':
         specifier: workspace:*
         version: link:../tour
@@ -195,6 +198,22 @@ importers:
       rrweb:
         specifier: 'catalog:'
         version: 2.1.6
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.12(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2)(esbuild@0.28.2))
+
+  packages/sandbox:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

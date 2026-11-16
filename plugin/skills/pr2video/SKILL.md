@@ -19,9 +19,16 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 1. **Understand the change.** Read the diff (`gh pr diff <n>` or `git diff base...head`) and the code
    it touches. Write two sentences on what changed for a user of the app. If nothing visible changed
    (pure refactor, tests, CI), say so and stop: there is nothing to film.
-2. **Get the app running** in the sandbox, for the head and then the base commit.
-   *Not built yet* (`pr2video sandbox up`, `pr2video exec`). For now, ask the user for a URL where the
-   head build already runs, and the sign-in it needs.
+2. **Get the app running** in the sandbox. Read [reference/setup.md](reference/setup.md) first.
+
+   ```bash
+   pr2video sandbox up --head <ref> --base <ref>     # head at /work/head, base at /work/base
+   pr2video sandbox exec --record -- pnpm install    # runs inside; --record = a setup step
+   pr2video sandbox start web --port 3000 --record -- pnpm dev
+   ```
+
+   Record only the steps that set the app up, so `pr2video sandbox replay` can rebuild the base
+   commit from them. Explore without `--record`.
 3. **Choose 3-6 scenes.** A scene is a place in the app plus the state that shows the change, the
    role that sees it, at most 5 actions to get there, and at most 6 checkpoints to stop on.
    *Not built yet* (`pr2video scenes check`, `pr2video record`).
@@ -55,7 +62,7 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 
 ## Rules
 
-- Run the pull request's code only inside the sandbox, never directly on the user's machine, unless
-  the user tells you to.
+- Run the pull request's code only through `pr2video sandbox exec` / `start`, never directly on the
+  user's machine, unless the user tells you to.
 - Never invent what is on screen: captions describe only what a checkpoint recorded.
 - Say when a scene could not be reached instead of filming the wrong page.

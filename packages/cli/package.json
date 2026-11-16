@@ -18,7 +18,8 @@
   "dependencies": {
     "@pr2video/tour": "workspace:*",
     "@pr2video/voice": "workspace:*",
-    "@pr2video/player": "workspace:*"
+    "@pr2video/player": "workspace:*",
+    "@pr2video/sandbox": "workspace:*"
   },
   "peerDependencies": {
     "kokoro-js": "catalog:",

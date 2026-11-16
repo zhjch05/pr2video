@@ -27,7 +27,7 @@ tool cannot enforce on someone else's model.
 - `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
 - `plugin/`: the Claude Code plugin: the skill, its references, the `/pr2video` command.
 
-## The sandbox (next)
+## The sandbox
 
 One container per run, standing in for a cloud sandbox:
 
@@ -43,7 +43,20 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
 - The image must be native multi-arch (arm64 on Apple Silicon); runc cannot create namespaces under qemu.
 - Caches: a host-side `registry:2` pull-through mirror, a shared pnpm store volume, and the seeded
   services' data directories as tarballs. Back up data, never Docker's image store.
-- The checkout lives on the container's filesystem; bind mounts are slow on macOS.
+- The checkout lives on the container's filesystem; bind mounts are slow on macOS. The repository
+  is mounted read-only at `/src` only to fetch from (`git fetch /src '+refs/*:refs/src/*'`), so any
+  local commit, branch or pull request ref can be the head or base. Uncommitted changes are not
+  included.
+- The inner engine's data is an anonymous volume (overlayfs cannot sit on overlayfs), removed with
+  the container. dockerd starts in the entrypoint after moby's cgroup v2 nesting step.
+- The registry mirror and every sandbox share the `pr2video` network. On a machine whose default
+  address pools are used up, the network falls back to a `10.217.x.0/24` subnet.
+- `exec` passes the command in an environment variable and `eval`s it under `bash -l`, so quoting
+  survives. `start` runs it under `setsid nohup`, so `stop` kills the whole process group.
+- The journal (`.pr2video/<run>/journal.jsonl`) holds only `--record`ed steps. `replay` stops every
+  background process, rewrites `/work/head` to `/work/base`, and stops at the first failure. Making
+  steps replayable is the agent's job (`plugin/skills/pr2video/reference/setup.md`).
+- Not yet: the seeded-data cache (tarballs of service data directories).
 
 ## The renderer
 
