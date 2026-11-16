@@ -13,6 +13,7 @@ import { join, relative } from "node:path"
 
 import type { Tour, TourScene } from "@pr2video/tour"
 
+import { decodePng, pixelDifference } from "./png.ts"
 import { type SceneResult, sceneResultSchema } from "./result.ts"
 import { type Checkpoint, isCheckpoint, type ScenesFile } from "./scenes.ts"
 
@@ -25,7 +26,8 @@ export type DraftOptions = {
   /**
    * Where `record --side base` left its scenes: each head checkpoint the base
    * also reached is shown first as it was before the change, with a caption
-   * left for the agent to write.
+   * left for the agent to write - unless its screenshot looks the same as the
+   * head's, when there is nothing before to show.
    */
   base?: string | undefined
 }
@@ -42,6 +44,22 @@ async function readResult(dir: string, scene: string): Promise<SceneResult | nul
     )
   } catch {
     return null
+  }
+}
+
+/**
+ * Below this share of visibly different pixels (about 100 at 1280x800), two
+ * screenshots show the same thing: one changed word in a field is ~0.05%.
+ */
+const SAME_SCREEN = 0.0001
+
+/** Whether two checkpoint screenshots look the same; false when either cannot be read. */
+async function looksSame(a: string, b: string): Promise<boolean> {
+  try {
+    const [left, right] = await Promise.all([readFile(a), readFile(b)])
+    return pixelDifference(decodePng(left), decodePng(right)) < SAME_SCREEN
+  } catch {
+    return false
   }
 }
 
@@ -77,7 +95,19 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
       const spec = specs.get(cp.checkpoint)
       const was = before?.checkpoints.findIndex((b) => b.checkpoint === cp.checkpoint) ?? -1
       const baseCp = before && was >= 0 ? before.checkpoints[was] : undefined
-      if (before && baseCp && baseEvents) {
+      const same =
+        baseCp &&
+        options.base &&
+        (await looksSame(
+          join(options.recordings, scene.id, cp.screenshot),
+          join(options.base, scene.id, baseCp.screenshot),
+        ))
+      if (same)
+        skipped.push({
+          scene: `${scene.id}-${cp.checkpoint}-before`,
+          reason: "the base looks the same at this checkpoint",
+        })
+      if (before && baseCp && baseEvents && !same) {
         const previous = before.checkpoints[was - 1]
         const next = before.checkpoints[was + 1]
         scenes.push({

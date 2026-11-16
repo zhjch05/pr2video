@@ -65,8 +65,9 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
    pr2video render .pr2video/<run>/tour.json --frame 4000,12000   # stills, exactly as the video draws them
    ```
 
-   With `--compare`, delete each "before" scene where the base looks the same as the head (a step
-   that only types, say), and write the rest of the "before" captions from the base screenshot:
+   With `--compare`, a checkpoint whose base screenshot looks the same as the head's gets no
+   "before" (the draft lists them as left out). Write the other "before" captions from the base
+   screenshot:
    `tour check` refuses the draft's TODO. Drafting again after re-recording keeps the scenes, order,
    captions and zooms you wrote and takes fresh timings, focus and marks; change focus and marks in
    `scenes.json`, where they survive re-recording (`--fresh` starts the tour over). Look at a few `--frame` stills before rendering the MP4; the replay can differ from

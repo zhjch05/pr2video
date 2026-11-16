@@ -27,7 +27,8 @@ export const RECORD_HELP = `Recording:
                                                 Record the scenes in the sandbox's browser
   pr2video tour draft [--compare] [--fresh] [--scenes <file>] [-o <tour.json>]
                                                 A first tour from the head's recordings; --compare puts
-                                                each checkpoint's base recording before it ("before").
+                                                each checkpoint's base recording before it ("before")
+                                                where its screenshot differs from the head's.
                                                 Drafting over an existing tour keeps its scenes, order,
                                                 titles, labels, captions and zooms, and takes recordings,
                                                 timings, focus and marks fresh; --fresh starts over`

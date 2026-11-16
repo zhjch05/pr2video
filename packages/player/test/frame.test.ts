@@ -2,7 +2,7 @@ import { FOCUS_MS, type TourScene, tourTimeline } from "@pr2video/tour"
 import { describe, expect, it } from "vitest"
 
 import { embedJson, tourHtml } from "../src/data.ts"
-import { cubicBezier, easeTransform, frameAt, zoomEase } from "../src/frame.ts"
+import { captionSide, cubicBezier, easeTransform, frameAt, zoomEase } from "../src/frame.ts"
 
 const scene: TourScene = {
   id: "s1",
@@ -69,5 +69,33 @@ describe("tourHtml", () => {
     )
     expect(html).toContain("<title>A &lt;b&gt; tour</title>")
     expect(html.match(/<\/script>/g)?.length).toBe(2)
+  })
+})
+
+describe("captionSide", () => {
+  const stage = { width: 1280, height: 800 }
+  const none = { x: 0, y: 0, scale: 1 }
+
+  it("stays at the bottom unless it would cover a box", () => {
+    expect(captionSide(stage, none, [], 40)).toBe("bottom")
+    expect(captionSide(stage, none, [{ x: 100, y: 100, width: 200, height: 40 }], 40)).toBe(
+      "bottom",
+    )
+    expect(captionSide(stage, none, [{ x: 500, y: 740, width: 200, height: 40 }], 40)).toBe("top")
+  })
+
+  it("measures boxes where the zoom puts them", () => {
+    // y 500..540 sits clear at scale 1; zoomed 1.5 from the top it lands at 750..810.
+    const box = { x: 100, y: 500, width: 200, height: 40 }
+    expect(captionSide(stage, none, [box], 40)).toBe("bottom")
+    expect(captionSide(stage, { x: 0, y: 0, scale: 1.5 }, [box], 40)).toBe("top")
+  })
+
+  it("keeps the bottom when the top would cover more", () => {
+    const boxes = [
+      { x: 0, y: 760, width: 100, height: 20 },
+      { x: 0, y: 0, width: 1280, height: 60 },
+    ]
+    expect(captionSide(stage, none, boxes, 40)).toBe("bottom")
   })
 })

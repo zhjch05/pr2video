@@ -154,6 +154,11 @@ body {
   pointer-events: none;
 }
 
+.p2v-caption-top {
+  top: 12px;
+  bottom: auto;
+}
+
 .p2v-caption {
   margin: 0;
   max-width: min(42rem, 92%);

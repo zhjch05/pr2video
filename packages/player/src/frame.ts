@@ -87,3 +87,34 @@ export function easeTransform(
 ): { x: number; y: number; scale: number } {
   return { x: target.x * p, y: target.y * p, scale: 1 + (target.scale - 1) * p }
 }
+
+type Rect = { x: number; y: number; width: number; height: number; weight?: number }
+
+/**
+ * Where the caption goes so it does not cover what the scene is about: the
+ * bottom, unless a box (stage pixels, before `transform`) would sit under it
+ * once zoomed; then the top, unless that covers more. A box's `weight`
+ * (default 1) scales how much covering it counts.
+ */
+export function captionSide(
+  stage: { width: number; height: number },
+  transform: { x: number; y: number; scale: number },
+  boxes: ReadonlyArray<Rect>,
+  captionHeight: number,
+  margin = 12,
+): "top" | "bottom" {
+  const band = captionHeight + margin * 2
+  const covered = (top: number, bottom: number) =>
+    boxes.reduce((sum, box) => {
+      const y0 = Math.max(0, box.y * transform.scale + transform.y)
+      const y1 = Math.min(stage.height, (box.y + box.height) * transform.scale + transform.y)
+      const width =
+        Math.min(stage.width, (box.x + box.width) * transform.scale + transform.x) -
+        Math.max(0, box.x * transform.scale + transform.x)
+      const overlap = Math.min(y1, bottom) - Math.max(y0, top)
+      return sum + (overlap > 0 && width > 0 ? overlap * width * (box.weight ?? 1) : 0)
+    }, 0)
+  const atBottom = covered(stage.height - band, stage.height)
+  if (atBottom === 0) return "bottom"
+  return covered(0, band) < atBottom ? "top" : "bottom"
+}

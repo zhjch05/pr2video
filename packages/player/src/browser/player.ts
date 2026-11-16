@@ -27,7 +27,7 @@ import {
 import { Replayer } from "rrweb"
 
 import type { PlayerData } from "../data.ts"
-import { easeTransform, type FrameState, frameAt } from "../frame.ts"
+import { captionSide, easeTransform, type FrameState, frameAt } from "../frame.ts"
 import { letAnimationsFinish, loaded, painted, pinRemovals, rescroll } from "./replay.ts"
 
 type Events = Array<{ timestamp: number; type?: number; data?: never }>
@@ -72,6 +72,7 @@ export class TourPlayer {
   private readonly host: HTMLElement
   private readonly marksLayer: HTMLElement
   private readonly caption: HTMLElement
+  private readonly captionWrap: HTMLElement
   private readonly loading: HTMLElement
   private controls: {
     play: HTMLButtonElement
@@ -125,8 +126,8 @@ export class TourPlayer {
     this.host = el("div", "p2v-host", this.zoomLayer)
     this.marksLayer = el("div", "p2v-marks", this.zoomLayer)
     this.marksLayer.setAttribute("aria-hidden", "true")
-    const captionWrap = el("div", "p2v-caption-wrap", this.stage)
-    this.caption = el("p", "p2v-caption", captionWrap)
+    this.captionWrap = el("div", "p2v-caption-wrap", this.stage)
+    this.caption = el("p", "p2v-caption", this.captionWrap)
     this.caption.setAttribute("aria-live", "polite")
     this.loading = el("div", "p2v-loading", this.stage)
     this.loading.textContent = "Loading the recording…"
@@ -239,6 +240,41 @@ export class TourPlayer {
     }
   }
 
+  private controlsCache: { index: number; boxes: Array<Box> } | null = null
+
+  /**
+   * The buttons, fields and links on top at the checkpoint (not behind a
+   * dialog), in stage pixels: a caption over them hides what the viewer
+   * would look for. Measured once per scene, when its caption first shows.
+   */
+  private controlsOnShow(index: number): Array<Box> {
+    if (this.controlsCache?.index === index) return this.controlsCache.boxes
+    const boxes: Array<Box> = []
+    const doc = this.current.replayer?.iframe.contentDocument
+    if (doc) {
+      const { scale, left } = this.current
+      const view = doc.defaultView
+      const found = doc.querySelectorAll(
+        "button, a[href], input:not([type=hidden]), select, textarea, [role=button], [role=link], [role=tab], [role=switch], [role=checkbox], [role=combobox]",
+      )
+      for (const element of Array.from(found).slice(0, 400)) {
+        const rect = element.getBoundingClientRect()
+        if (rect.width < 2 || rect.height < 2) continue
+        if (view && (rect.bottom < 0 || rect.top > view.innerHeight)) continue
+        const hit = doc.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue
+        boxes.push({
+          x: left + rect.x * scale,
+          y: rect.y * scale,
+          width: rect.width * scale,
+          height: rect.height * scale,
+        })
+      }
+    }
+    this.controlsCache = { index, boxes }
+    return boxes
+  }
+
   /** Where a target is on the stage now, in stage pixels; null when its node has left the page. */
   private locate(target: Target): Box | null {
     const replayer = this.current.replayer
@@ -294,6 +330,16 @@ export class TourPlayer {
     this.caption.hidden = !showCaption
     if (showCaption && this.caption.textContent !== scene.caption)
       this.caption.textContent = scene.caption
+    if (showCaption) {
+      // Placed by where the zoom ends, so it does not move while zooming:
+      // off the focus and marks above all, then off the controls on show.
+      const boxes = [
+        ...[focusBox, ...markBoxes].flatMap((b) => (b ? [{ ...b, weight: 20 }] : [])),
+        ...this.controlsOnShow(state.index),
+      ]
+      const side = captionSide({ width, height }, target, boxes, this.caption.offsetHeight)
+      this.captionWrap.classList.toggle("p2v-caption-top", side === "top")
+    }
   }
 
   /** The scene's narration, from its focus on: placed and played with the clock, silent before. */

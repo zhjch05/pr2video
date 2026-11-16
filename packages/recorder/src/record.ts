@@ -164,9 +164,45 @@ async function centre(target: Locator) {
   )
 }
 
-/** Where `target` is now: its box in viewport pixels and its rrweb node id. */
+/**
+ * Where `target` is now: its box in viewport pixels and its rrweb node id. A
+ * form field drawn inside a styled frame (a bordered wrapper with padding,
+ * common in component libraries) is measured by that frame, which is what the
+ * viewer sees as the field.
+ */
 async function measure(target: Locator) {
-  return target.evaluate((el) => {
+  return target.evaluate((field) => {
+    // A visible border or shadow: what a viewer sees as the box of a field.
+    const framed = (node: Element) => {
+      const style = getComputedStyle(node)
+      if (style.boxShadow !== "none") return true
+      return ["top", "right", "bottom", "left"].some(
+        (side) =>
+          Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) > 0 &&
+          !/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/.test(
+            style.getPropertyValue(`border-${side}-color`),
+          ),
+      )
+    }
+    let el: Element = field
+    if (field.matches("input, textarea, select") && !framed(field)) {
+      const own = field.getBoundingClientRect()
+      let up = field.parentElement
+      for (let level = 0; up && level < 3; level++, up = up.parentElement) {
+        const r = up.getBoundingClientRect()
+        const contains =
+          r.x <= own.x + 0.5 &&
+          r.right >= own.right - 0.5 &&
+          r.y <= own.y + 0.5 &&
+          r.bottom >= own.bottom - 0.5
+        const slack = Math.max(own.x - r.x, r.right - own.right, own.y - r.y, r.bottom - own.bottom)
+        if (!contains || slack > 24) break
+        if (framed(up)) {
+          el = up
+          break
+        }
+      }
+    }
     const rect = el.getBoundingClientRect()
     const mirror = (
       window as unknown as { rrweb?: { record?: { mirror?: { getId(n: Node): number } } } }
