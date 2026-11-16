@@ -64,6 +64,19 @@ own API or a script, as a recorded step after the server is up, so the base gets
 Read the app's tests (e2e helpers, fixtures) for how they create users and records; they are
 usually the shortest path. First-run setup wizards (create the admin account) are often an API call.
 
+## Saving the setup for next time
+
+A later run of the same repository (the next push, another pull request) can start from this one:
+`pr2video sandbox up --from <run>` copies this run's journal and kept files and replays them on its
+head. When seeding or installing a toolchain is slow, save what it made once the head is set up:
+
+- Record such steps with `--data` instead of `--record`: steps that only write services' data or a
+  path you will save (`/opt/go`), never the checkout.
+- Then `pr2video sandbox save --path /opt/go`: it keeps every volume of the sandbox's Docker (the
+  services' data; use named volumes, not bind mounts into the checkout) and the paths you give.
+- `up --from` restores them and skips the `--data` steps; every other step runs again. Migrations
+  then run against the restored data, so keep them able to run twice.
+
 ## Secrets and outside services
 
 The app can reach the internet from the sandbox (it needs it to install packages), so it may fetch

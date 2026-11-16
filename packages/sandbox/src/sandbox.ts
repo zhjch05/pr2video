@@ -14,7 +14,7 @@
  */
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cp, readdir, readFile, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -22,7 +22,9 @@ import { promisify } from "node:util"
 import { docker, dockerOrThrow, dockerReady } from "./docker.ts"
 import {
   appendJournal,
+  type DataManifest,
   type JournalEntry,
+  readDataManifest,
   readJournal,
   readRecord,
   rebase,
@@ -293,6 +295,11 @@ export type UpOptions = {
   head?: string | undefined
   /** Its base; where the head left the default branch, by default. `null`: no base. */
   base?: string | null | undefined
+  /**
+   * An earlier run of this repository to start from: its journal and kept
+   * files are copied in, and its saved data restored, ready to replay.
+   */
+  from?: string | undefined
   log?: Log
 }
 
@@ -397,7 +404,116 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     createdAt: new Date().toISOString(),
   }
   await writeRecord(record)
+  if (options.from && options.from !== run) await adoptRun(record, options.from, options.log)
   return record
+}
+
+/** Copies run `from`'s setup into `record`'s run, and restores its saved data. */
+async function adoptRun(record: SandboxRecord, from: string, log: Log): Promise<void> {
+  const source = runDir(record.repo, from)
+  const target = runDir(record.repo, record.run)
+  const journal = await readJournal(record.repo, from)
+  if (!journal.length) throw new Error(`run "${from}" has no recorded setup to start from`)
+  await cp(join(source, "journal.jsonl"), join(target, "journal.jsonl"))
+  await cp(join(source, "files"), join(target, "files"), { recursive: true }).catch(() => undefined)
+  for (const name of ["scenes.json", "seed"])
+    await cp(join(source, name), join(target, name), { recursive: true, force: false }).catch(
+      () => undefined,
+    )
+  log?.(`took ${journal.length} setup steps from run ${from}`)
+  const manifest = await readDataManifest(record.repo, from)
+  if (!manifest) return
+  log?.(
+    `restoring ${from}'s saved data (${manifest.volumes.length} volumes, ${manifest.paths.length} paths, ${(manifest.bytes / 1e6).toFixed(1)} MB)`,
+  )
+  await mkdir(target, { recursive: true })
+  await dockerOrThrow([
+    "cp",
+    join(source, "data.tgz"),
+    `${record.container}:/tmp/pr2video-data.tgz`,
+  ])
+  const restored = await inside(
+    record.container,
+    [
+      "set -e",
+      ...manifest.volumes.map((v) => `docker volume create ${shellWord(v)} >/dev/null`),
+      "tar -xzpf /tmp/pr2video-data.tgz -C /",
+      "rm /tmp/pr2video-data.tgz",
+    ].join("\n"),
+    { timeoutMs: 600_000 },
+  )
+  if (restored.code !== 0)
+    throw new Error(`restoring the saved data failed: ${restored.stderr.trim()}`)
+  await writeFile(join(target, "data.json"), `${JSON.stringify(manifest, null, 2)}\n`)
+  await writeFile(join(target, "restored"), `${manifest.steps}\n`)
+}
+
+/** How many of this run's journal steps a restored snapshot covers (0 when none was restored). */
+export async function restoredSteps(record: SandboxRecord): Promise<number> {
+  try {
+    return Number(
+      (await readFile(join(runDir(record.repo, record.run), "restored"), "utf8")).trim(),
+    )
+  } catch {
+    return 0
+  }
+}
+
+function shellWord(text: string): string {
+  return `'${text.replace(/'/g, "'\\''")}'`
+}
+
+/**
+ * Saves what setup made outside the checkouts, for a later run to start from
+ * (`up --from`): every volume of the sandbox's Docker engine (its services'
+ * data) and `paths` (a toolchain, a seeded file). Containers are stopped
+ * while their data is copied, then started again; background processes keep
+ * running. Docker's image store is never saved: the registry mirror makes
+ * pulls quick.
+ */
+export async function saveData(
+  record: SandboxRecord,
+  paths: ReadonlyArray<string>,
+  log?: Log,
+): Promise<DataManifest> {
+  for (const path of paths)
+    if (!path.startsWith("/")) throw new Error(`a saved path must be absolute (got "${path}")`)
+  const listed = await inside(record.container, "docker volume ls -q")
+  if (listed.code !== 0) throw new Error(`listing volumes failed: ${listed.stderr.trim()}`)
+  const volumes = listed.stdout.split("\n").filter(Boolean)
+  if (!volumes.length && !paths.length)
+    throw new Error("nothing to save: no Docker volumes, and no --path given")
+  log?.(`saving ${volumes.length} volumes${paths.length ? ` and ${paths.join(", ")}` : ""}`)
+  const members = [
+    ...volumes.map((v) => `var/lib/docker/volumes/${v}/_data`),
+    ...paths.map((p) => p.replace(/^\/+/, "")),
+  ]
+  const saved = await inside(
+    record.container,
+    [
+      "set -e",
+      "status=0",
+      "running=$(docker ps -q)",
+      '[ -z "$running" ] || docker stop -t 30 $running >/dev/null',
+      `tar -czpf /tmp/pr2video-data.tgz -C / ${members.map(shellWord).join(" ")} || status=$?`,
+      '[ -z "$running" ] || docker start $running >/dev/null',
+      'exit "$status"',
+    ].join("\n"),
+    { timeoutMs: 1_200_000 },
+  )
+  if (saved.code !== 0) throw new Error(`saving the data failed: ${saved.stderr.trim()}`)
+  const dir = runDir(record.repo, record.run)
+  await dockerOrThrow(["cp", `${record.container}:/tmp/pr2video-data.tgz`, join(dir, "data.tgz")])
+  await inside(record.container, "rm -f /tmp/pr2video-data.tgz")
+  const manifest: DataManifest = {
+    steps: (await readJournal(record.repo, record.run)).length,
+    volumes,
+    paths: [...paths],
+    bytes: (await stat(join(dir, "data.tgz"))).size,
+    savedAt: new Date().toISOString(),
+  }
+  await writeFile(join(dir, "data.json"), `${JSON.stringify(manifest, null, 2)}\n`)
+  return manifest
 }
 
 async function nextLog(record: SandboxRecord, label: string): Promise<string> {
@@ -424,6 +540,8 @@ export async function exec(
   options: {
     cwd?: string | undefined
     record?: boolean | undefined
+    /** Journal it as a data step (see `JournalEntry`). */
+    data?: boolean | undefined
     timeoutMs?: number | undefined
     onOutput?: ((chunk: string) => void) | undefined
   } = {},
@@ -460,6 +578,7 @@ export async function exec(
       exitCode: result.code,
       ms,
       at: new Date().toISOString(),
+      ...(options.data ? { data: true } : {}),
     })
   return {
     exitCode: result.code,
@@ -614,6 +733,8 @@ export async function replay(
   record: SandboxRecord,
   options: {
     side?: "head" | "base" | undefined
+    /** Skip the data steps among the first this many: a restored snapshot already holds what they wrote. */
+    restoredSteps?: number | undefined
     onStep?: ((step: ReplayStep) => void) | undefined
     onOutput?: ((chunk: string) => void) | undefined
   } = {},
@@ -628,10 +749,12 @@ export async function replay(
   for (const process of await processes(record))
     if (process.running) await stop(record, process.name)
   const steps: Array<ReplayStep> = []
-  for (const original of journal) {
+  for (const [index, original] of journal.entries()) {
     const entry = side === "base" && base ? rebase(original, record.head.dir, base.dir) : original
     let step: ReplayStep
-    if (entry.kind === "copy") {
+    if (entry.kind === "exec" && entry.data && index < (options.restoredSteps ?? 0)) {
+      step = { entry, ok: true, detail: "skipped: the restored data holds it" }
+    } else if (entry.kind === "copy") {
       const from = join(runDir(record.repo, record.run), entry.from)
       step = await copyIn(record, from, entry.to).then(
         () => ({ entry, ok: true, detail: "copied" }),

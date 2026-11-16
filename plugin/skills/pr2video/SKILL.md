@@ -32,6 +32,11 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 
    Record only the steps that set the app up, so `pr2video sandbox replay` can rebuild the base
    commit from them. Explore without `--record`.
+
+   If `.pr2video/` already holds a run of this repository with recorded setup (`ls .pr2video`, then
+   `pr2video sandbox journal --run <run>`), start from it instead:
+   `pr2video sandbox up --head <ref> --from <run>` replays that setup on the new head, restoring its
+   saved data if it has any. Fix and re-record only the steps that fail.
 3. **Write the scenes** (`.pr2video/<run>/scenes.json`): 1-6 places in the app that show the change,
    each with a start URL, a few steps to get there and checkpoints to stop on, with captions. See
    [reference/scenes.md](reference/scenes.md). Find button names, labels and routes in the code;

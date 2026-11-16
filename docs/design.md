@@ -44,9 +44,9 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
 - Services run inside the container's own Docker, so recipes see `localhost` as in any sandbox.
 - The image must be native multi-arch (arm64 on Apple Silicon); runc cannot create namespaces under qemu.
 - Caches: a host-side `registry:2` pull-through mirror, a shared pnpm store volume, and the seeded
-  services' data directories as tarballs. Back up data, never Docker's image store.
+  services' data as tarballs (`save`, `up --from`). Back up data, never Docker's image store.
 - The checkout lives on the container's filesystem; bind mounts are slow on macOS. The repository
-  is mounted read-only at `/src` only to fetch from (`git fetch /src '+refs/*:refs/src/*'`), so any
+  is mounted read-only at `/src` only to fetch from (the head and base commits, by hash), so any
   local commit, branch or pull request ref can be the head or base. Uncommitted changes are not
   included.
 - The inner engine's data is an anonymous volume (overlayfs cannot sit on overlayfs), removed with
@@ -63,7 +63,12 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
   `/src`). On the host it first deepens a shallow clone until the merge base is there, and fetches a
   partial clone's missing files of both commits in one batch (`fetch --stdin`, as git's lazy fetch
   does), since nothing can fetch lazily through the read-only mount.
-- Not yet: the seeded-data cache (tarballs of service data directories).
+- The seeded-data cache: `save` stops the inner containers, tars every inner Docker volume's
+  `_data` and the given paths to `.pr2video/<run>/data.tgz` (manifest `data.json`: the journal
+  length it covers), and starts them again. `up --from <run>` copies that run's journal, kept files
+  and scenes, creates the volumes, untars, and replays on the head skipping the `--data` steps the
+  snapshot covers. Volume directories are restored under a running dockerd by creating each volume
+  first, so its metadata store is never written behind its back.
 
 ## The renderer
 

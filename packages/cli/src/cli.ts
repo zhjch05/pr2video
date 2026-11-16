@@ -173,6 +173,8 @@ async function main() {
       head: { type: "string" },
       base: { type: "string" },
       "no-base": { type: "boolean" },
+      from: { type: "string" },
+      data: { type: "boolean" },
       port: { type: "string" },
       tail: { type: "string" },
       name: { type: "string" },

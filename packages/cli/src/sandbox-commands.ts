@@ -14,6 +14,8 @@ import {
   readJournal,
   replay,
   resolveRecord,
+  restoredSteps,
+  saveData,
   start,
   stop,
   up,
@@ -33,15 +35,20 @@ export type SandboxFlags = {
   tail?: string | undefined
   name?: string | undefined
   path?: string | undefined
+  from?: string | undefined
+  data?: boolean | undefined
   side?: string | undefined
 }
 
 export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull request never runs on your machine):
-  pr2video sandbox up [--head <ref>] [--base <ref> | --no-base] [--run <id>]
-                                                Check out head (/work/head) and base (/work/base) in a new sandbox
-  pr2video sandbox exec [--cwd <dir>] [--record] [--timeout <s>] -- <command>
+  pr2video sandbox up [--head <ref>] [--base <ref> | --no-base] [--run <id>] [--from <run>]
+                                                Check out head (/work/head) and base (/work/base) in a new sandbox;
+                                                --from starts from an earlier run's setup and saved data
+                                                and replays it on the head
+  pr2video sandbox exec [--cwd <dir>] [--record [--data]] [--timeout <s>] -- <command>
                                                 Run a command inside; --record adds it to the setup
-                                                journal if it succeeds
+                                                journal if it succeeds; --data marks a step that only
+                                                writes what \`save\` keeps (seeding, a toolchain)
   pr2video sandbox start <name> [--port <n> [--path <p>]] [--cwd <dir>] [--record] -- <command>
                                                 Start a background process (a server); --port waits until
                                                 <path> (default /) answers with a status below 500
@@ -52,6 +59,8 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox ps | logs <name> [--tail <n>] | stop <name>
   pr2video sandbox journal                      The recorded setup steps
   pr2video sandbox journal drop <n>             Remove step n (a wrong step, or one to record again)
+  pr2video sandbox save [--path <dir,dir>]      Keep the services' data (every Docker volume) and the
+                                                paths, for a later run's up --from
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
@@ -59,7 +68,8 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
-  if (step.kind === "exec") return `exec (exit ${step.exitCode}) ${step.cwd}$ ${step.command}`
+  if (step.kind === "exec")
+    return `exec${step.data ? " data" : ""} (exit ${step.exitCode}) ${step.cwd}$ ${step.command}`
   return `start ${step.name}${step.port ? ` :${step.port}` : ""} ${step.cwd}$ ${step.command}`
 }
 
@@ -112,8 +122,26 @@ export async function sandboxCommand(
         run: flags.run,
         head: flags.head,
         base: flags["no-base"] ? null : flags.base,
+        from: flags.from,
         log: json ? undefined : say,
       })
+      if (flags.from) {
+        const restored = await restoredSteps(record)
+        const result = await replay(record, {
+          side: "head",
+          restoredSteps: restored,
+          onStep: json
+            ? undefined
+            : (step) =>
+                say(`${step.ok ? "ok  " : "FAIL"} ${describeStep(step.entry)}: ${step.detail}`),
+        })
+        answer({ ok: result.ok, ...record, replay: result })
+        if (!result.ok)
+          say(
+            "the setup did not replay on this head: fix the step, then `sandbox journal drop` and record it again",
+          )
+        return result.ok ? 0 : 1
+      }
       answer({ ok: true, ...record })
       say(
         `sandbox ${record.container}: head ${record.head.sha.slice(0, 10)} at ${record.head.dir}` +
@@ -130,19 +158,20 @@ export async function sandboxCommand(
       const record = await resolveRecord(cwd, flags.run)
       const result = await exec(record, command, {
         cwd: flags.cwd,
-        record: flags.record,
+        record: flags.record || flags.data,
+        data: flags.data,
         timeoutMs: seconds(flags.timeout, 20 * 60),
         onOutput: json ? undefined : (chunk) => process.stdout.write(chunk),
       })
       answer({ ok: result.exitCode === 0, ...result })
       if (!json && result.timedOut) console.error(`pr2video: timed out after ${result.ms}ms`)
       if (!json) {
-        const steps = flags.record ? (await readJournal(record.repo, record.run)).length : 0
+        const steps = result.recorded ? (await readJournal(record.repo, record.run)).length : 0
         console.error(
           `pr2video: exit ${result.exitCode ?? "none"} in ${(result.ms / 1000).toFixed(1)}s` +
             (result.recorded
               ? `, recorded as step ${steps}`
-              : flags.record
+              : flags.record || flags.data
                 ? ", not recorded (it failed): fix it and run it again"
                 : ""),
         )
@@ -186,6 +215,19 @@ export async function sandboxCommand(
       await copyIn(record, from, to, { record: flags.record })
       answer({ ok: true, from, to, recorded: Boolean(flags.record) })
       say(`copied ${from} to ${to}${flags.record ? " (recorded)" : ""}`)
+      return 0
+    }
+    case "save": {
+      const record = await resolveRecord(cwd, flags.run)
+      const paths = (flags.path ?? "")
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)
+      const manifest = await saveData(record, paths, json ? undefined : say)
+      answer({ ok: true, ...manifest })
+      say(
+        `saved ${(manifest.bytes / 1e6).toFixed(1)} MB after ${manifest.steps} steps; start a later run from it with: pr2video sandbox up --from ${record.run}`,
+      )
       return 0
     }
     case "stop": {

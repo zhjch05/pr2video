@@ -34,6 +34,11 @@ export const journalEntrySchema = z.discriminatedUnion("kind", [
     exitCode: z.number().nullable(),
     ms: z.number(),
     at: z.string(),
+    /**
+     * The step only writes data a saved snapshot holds (seeding, a toolchain
+     * in a saved path): skipped when a later run restores that snapshot.
+     */
+    data: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("start"),
@@ -131,4 +136,25 @@ export function tail(text: string, max = 16_000): string {
   if (Buffer.byteLength(text) <= max) return text
   const kept = Buffer.from(text).subarray(-max).toString("utf8")
   return `… (${Buffer.byteLength(text) - max} earlier bytes in the log)\n${kept}`
+}
+
+/** What `sandbox save` kept: `data.tgz` beside it in the run directory. */
+export const dataManifestSchema = z.object({
+  /** How many journal steps had run when it was saved. */
+  steps: z.number(),
+  volumes: z.array(z.string()),
+  paths: z.array(z.string()),
+  bytes: z.number(),
+  savedAt: z.string(),
+})
+export type DataManifest = z.infer<typeof dataManifestSchema>
+
+export async function readDataManifest(repo: string, run: string): Promise<DataManifest | null> {
+  try {
+    return dataManifestSchema.parse(
+      JSON.parse(await readFile(join(runDir(repo, run), "data.json"), "utf8")),
+    )
+  } catch {
+    return null
+  }
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from "node:fs/promises"
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -9,6 +9,7 @@ import {
   appendJournal,
   dropJournalStep,
   type JournalEntry,
+  readDataManifest,
   readJournal,
   rebase,
   runDir,
@@ -105,5 +106,26 @@ describe("validRun", () => {
     expect(validRun("a1b2c3d4e5")).toBe("a1b2c3d4e5")
     expect(() => validRun("../x")).toThrow()
     expect(() => validRun("a b")).toThrow()
+  })
+})
+
+describe("data", () => {
+  it("journals a data step, and reads a saved manifest or none", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "pr2video-data-"))
+    await mkdir(runDir(repo, "r1"), { recursive: true })
+    await appendJournal(repo, "r1", {
+      kind: "exec",
+      command: "seed",
+      cwd: "/",
+      exitCode: 0,
+      ms: 1,
+      at: "t",
+      data: true,
+    })
+    expect(await readJournal(repo, "r1")).toMatchObject([{ kind: "exec", data: true }])
+    expect(await readDataManifest(repo, "r1")).toBeNull()
+    const manifest = { steps: 1, volumes: ["pgdata"], paths: ["/opt/go"], bytes: 10, savedAt: "t" }
+    await writeFile(join(runDir(repo, "r1"), "data.json"), JSON.stringify(manifest))
+    expect(await readDataManifest(repo, "r1")).toEqual(manifest)
   })
 })

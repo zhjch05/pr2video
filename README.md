@@ -56,6 +56,8 @@ pr2video sandbox up [--head <ref>] [--base <ref>]   One container per run: head 
 pr2video sandbox exec [--record] -- <command>        Run inside the sandbox
 pr2video sandbox start <name> --port <n> -- <cmd>    Start a server and wait until it answers
 pr2video sandbox replay                              Re-run the recorded setup on the base commit
+pr2video sandbox save [--path <dir>]                 Keep the services' data for the next run
+pr2video sandbox up --from <run>                     Start from an earlier run's setup and data
 pr2video sandbox cp [--record] <host> <sandbox>     Copy a file in (journaled with --record)
 pr2video sandbox ps | logs | stop | journal [drop <n>] | status | ls | down
 
