@@ -74,12 +74,22 @@ function entryOf(dir: string): string | null {
   return join(dir, entry)
 }
 
-/** Where `name` resolves from: beside us, else a global folder; null when it is nowhere. */
-export function resolveInstalled(name: string): string | null {
+/** How the caller resolves a package from its own module (`(n) => import.meta.resolve(n)`). */
+export type Resolve = (name: string) => string
+
+/**
+ * Where `name` resolves from: beside the caller (`resolve` is the caller's
+ * own, since what a package can see depends on where it is installed), else
+ * a global folder; null when it is nowhere.
+ */
+export function resolveInstalled(
+  name: string,
+  resolve: Resolve = (n) => import.meta.resolve(n),
+): string | null {
   try {
-    return import.meta.resolve(name)
+    return resolve(name)
   } catch {
-    // not beside us
+    // not beside the caller
   }
   for (const root of globalRoots()) {
     const dir = join(root, name)
@@ -91,8 +101,8 @@ export function resolveInstalled(name: string): string | null {
 }
 
 /** Imports an optional package from wherever it is installed; null when it is not. */
-export async function importInstalled<T>(name: string): Promise<T | null> {
-  const url = resolveInstalled(name)
+export async function importInstalled<T>(name: string, resolve?: Resolve): Promise<T | null> {
+  const url = resolveInstalled(name, resolve)
   if (!url) return null
   try {
     return (await import(url)) as T

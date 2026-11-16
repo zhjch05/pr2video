@@ -92,7 +92,9 @@ async function openTour(page: import("playwright").Page, htmlPath: string): Prom
 }
 
 async function launchChromium() {
-  const playwright = await importInstalled<typeof import("playwright")>("playwright")
+  const playwright = await importInstalled<typeof import("playwright")>("playwright", (name) =>
+    import.meta.resolve(name),
+  )
   if (!playwright)
     throw new Error(
       "rendering needs Playwright and its Chromium: npm install -g playwright && npx playwright install chromium",
