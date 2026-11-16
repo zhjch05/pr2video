@@ -43,8 +43,15 @@ Work in `.pr2video/<run>/` in the user's repository. Every file you write there 
 
    Narration reuses a clip whose caption did not change, so edit captions and narrate again freely.
 
-6. **Deliver.** *Not built yet* (`pr2video render --html`, `pr2video render --mp4`). Tell the user
-   where the files are, the tour's length, and any scene you could not reach and why.
+6. **Deliver.** Render the tour as one HTML file, and as an MP4 when the user wants a video:
+
+   ```bash
+   pr2video render .pr2video/<run>/tour.json --html .pr2video/<run>/tour.html
+   pr2video render .pr2video/<run>/tour.json --mp4 .pr2video/<run>/tour.mp4   # needs ffmpeg + Chromium
+   ```
+
+   The MP4 takes a few minutes: run it in the background. Tell the user where the files are, the
+   tour's length, and any scene you could not reach and why.
 
 ## Rules
 

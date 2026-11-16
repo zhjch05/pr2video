@@ -4,6 +4,7 @@ packages:
 # kokoro-js's ONNX runtime fetches its native binary on install. sharp and
 # protobufjs come along with transformers.js and need nothing built here.
 allowBuilds:
+  esbuild: true
   onnxruntime-node: true
   protobufjs: false
   sharp: false
@@ -15,3 +16,6 @@ catalog:
   vitest: ^4.1.0
   zod: ^4.3.6
   kokoro-js: 1.2.1
+  rrweb: 2.1.6
+  esbuild: 0.28.2
+  playwright: 1.63.0

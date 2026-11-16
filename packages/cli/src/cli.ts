@@ -20,6 +20,10 @@ import {
   type VoiceOptions,
 } from "@pr2video/voice"
 
+import { buildHtml } from "./assemble.ts"
+import { importBetterReview } from "./import.ts"
+import { renderVideo } from "./video.ts"
+
 const HELP = `pr2video - turn a pull request into a narrated tour
 
 Usage:
@@ -29,11 +33,16 @@ Usage:
   pr2video tour check <tour.json> [--json]      Validate a tour file; exit 1 with its problems
   pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
                                                 Show the tour's pacing; optionally write captions as WebVTT
+  pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080]
+                                                The tour as one self-contained HTML file and/or an MP4
+  pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
 
 Voice options:
   --voice <id>      ${VOICE_IDS.join(" | ")} | auto (default: auto, the best one available)
   --speaker <name>  The voice's own speaker (say -v name, kokoro voice id, espeak voice)
   --model <path>    Piper's .onnx voice model (or PIPER_MODEL)
+
+Rendering an MP4 needs ffmpeg and Playwright's Chromium (npx playwright install chromium).
 
 Environment:
   PR2VIDEO_CACHE    Where downloaded voice models are cached (default ~/.cache/pr2video)
@@ -46,6 +55,10 @@ type Flags = {
   model?: string
   output?: string
   vtt?: string
+  html?: string
+  mp4?: string
+  fps?: string
+  height?: string
   help?: boolean
 }
 
@@ -99,6 +112,10 @@ async function main() {
       model: { type: "string" },
       output: { type: "string", short: "o" },
       vtt: { type: "string" },
+      html: { type: "string" },
+      mp4: { type: "string" },
+      fps: { type: "string" },
+      height: { type: "string" },
       help: { type: "boolean", short: "h" },
     },
   })
@@ -212,6 +229,54 @@ async function main() {
       )
     console.log(
       `total ${(timeline.totalMs / 1000).toFixed(1)}s${flags.vtt ? `, captions in ${flags.vtt}` : ""}`,
+    )
+    return
+  }
+
+  if (command === "render") {
+    const [tourPath] = rest
+    if (!tourPath || (!flags.html && !flags.mp4))
+      fail(
+        "usage: pr2video render <tour.json> --html <out.html> and/or --mp4 <out.mp4>",
+        flags.json,
+      )
+    const outputs: Record<string, unknown> = {}
+    if (flags.html) {
+      const { html } = await buildHtml(tourPath)
+      await writeFile(flags.html, html)
+      outputs.html = { path: flags.html, bytes: Buffer.byteLength(html) }
+      if (!flags.json)
+        console.log(`${flags.html} (${(Buffer.byteLength(html) / 1e6).toFixed(1)} MB)`)
+    }
+    if (flags.mp4) {
+      const number = (value: string | undefined, name: string) => {
+        if (value === undefined) return undefined
+        const n = Number(value)
+        if (!Number.isFinite(n) || n <= 0) fail(`--${name} must be a positive number`, flags.json)
+        return n
+      }
+      const video = await renderVideo(tourPath, flags.mp4, {
+        fps: number(flags.fps, "fps"),
+        height: number(flags.height, "height"),
+        log: flags.json ? undefined : (line) => console.log(line),
+      })
+      outputs.mp4 = video
+      if (!flags.json)
+        console.log(
+          `${video.path} (${video.width}x${video.height}, ${(video.durationMs / 1000).toFixed(1)}s, ${video.frames} frames)`,
+        )
+    }
+    if (flags.json) console.log(JSON.stringify({ ok: true, ...outputs }, null, 2))
+    return
+  }
+
+  if (command === "import") {
+    const [htmlPath] = rest
+    if (!htmlPath || !flags.output) fail("usage: pr2video import <tour.html> -o <dir>", flags.json)
+    const tour = await importBetterReview(htmlPath, flags.output)
+    const result = { ok: true, tour: join(flags.output, "tour.json"), scenes: tour.scenes.length }
+    console.log(
+      flags.json ? JSON.stringify(result, null, 2) : `${result.tour} (${result.scenes} scenes)`,
     )
     return
   }

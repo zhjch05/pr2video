@@ -22,7 +22,9 @@ tool cannot enforce on someone else's model.
 - `@pr2video/tour`: the tour format (zod) and its timeline: pacing, zoom, captions, WebVTT. Pure, so
   the player and the MP4 renderer draw exactly the same thing.
 - `@pr2video/voice`: free local voices (kokoro, say, piper, espeak) and tour narration.
-- `pr2video`: the CLI.
+- `@pr2video/player`: the player (vanilla TypeScript + rrweb, bundled into one script) and the
+  self-contained page around it; `frame.ts` is the pure frame state both modes draw.
+- `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
 - `plugin/`: the Claude Code plugin: the skill, its references, the `/pr2video` command.
 
 ## The sandbox (next)
@@ -43,10 +45,17 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
   services' data directories as tarballs. Back up data, never Docker's image store.
 - The checkout lives on the container's filesystem; bind mounts are slow on macOS.
 
-## The renderer (next)
+## The renderer
 
-Frame-stepped, not screen-captured: the player gets a render mode in which the frame at time `t` is a
-pure function of `t` (the replayer paused at `momentAt(...).recordingMs`, zoom and marks from the
-timeline). Headless Chromium screenshots each frame at 30 fps into `ffmpeg`, and the narration clips
-are mixed at `narrationOffsets(timeline)`. Slower than recording the screen, but deterministic: no
-dropped frames, full quality, and identical to the HTML tour.
+Frame-stepped, not screen-captured. The page opened with `?render` has no controls and no clock;
+`window.pr2video.seek(t)` draws the frame at tour time `t` (`frameAt`: the replayer paused at the
+moment's `recordingMs`, the zoom eased by a computed curve rather than a CSS transition, marks and
+caption from the timeline) and resolves once it is painted. Headless Chromium screenshots each frame
+(JPEG) into `ffmpeg` (x264, yuv420p); a second pass mixes the narration clips in at
+`narrationOffsets(timeline)` with `adelay` + `amix`. Slower than recording the screen, but
+deterministic: no dropped frames, full quality, and identical to the HTML tour.
+
+- The page is the recording's viewport; `deviceScaleFactor` sets the output size (`--height`).
+- The mouse tail is off in render mode: rrweb draws it on the wall clock.
+- `waitUntil: "domcontentloaded"`: a recording's own stylesheets and fonts point at the recorded app's
+  origin, which is gone, and `load` can wait on them for a long time.

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -36,4 +36,42 @@ describe("pr2video", () => {
     expect(code).toBe(1)
     expect(json).toMatchObject({ ok: false, problems: [{ path: "scenes" }] })
   })
+})
+
+describe("pr2video render", () => {
+  const demo = fileURLToPath(new URL("./fixtures/demo/tour.json", import.meta.url))
+
+  it("writes one self-contained HTML file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-html-"))
+    const out = join(dir, "tour.html")
+    const { code, json } = await pr2video("render", demo, "--html", out, "--json")
+    expect(code).toBe(0)
+    expect(json).toMatchObject({ ok: true, html: { path: out } })
+    const html = await readFile(out, "utf8")
+    expect(html).toContain('id="pr2video-data"')
+    expect(html).not.toMatch(/<script[^>]+src=/)
+  })
+
+  it.runIf(process.env.PR2VIDEO_TEST_MP4 === "1")(
+    "renders an MP4 as long as the tour",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "pr2video-mp4-"))
+      const out = join(dir, "tour.mp4")
+      const { code, json } = await pr2video(
+        "render",
+        demo,
+        "--mp4",
+        out,
+        "--fps",
+        "5",
+        "--height",
+        "200",
+        "--json",
+      )
+      expect(code).toBe(0)
+      const video = (json as { mp4: { durationMs: number; frames: number } }).mp4
+      expect(video.frames).toBe(Math.ceil((video.durationMs / 1_000) * 5))
+    },
+    120_000,
+  )
 })

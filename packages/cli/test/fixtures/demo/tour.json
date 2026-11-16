@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "title": "Dark mode switch",
+  "summary": "Settings gains a dark mode switch.",
+  "voice": "none",
+  "scenes": [
+    {
+      "id": "settings",
+      "label": "S1",
+      "events": "recordings/demo.json",
+      "viewport": { "width": 640, "height": 400 },
+      "startMs": 0,
+      "endMs": 2000,
+      "atMs": 1500,
+      "caption": "Settings now has a \"Dark mode\" button.",
+      "focus": { "box": { "x": 24, "y": 80, "width": 120, "height": 36 }, "node": 7 },
+      "zoom": 2,
+      "markers": [
+        {
+          "box": { "x": 24, "y": 80, "width": 120, "height": 36 },
+          "node": 7,
+          "label": null,
+          "tone": "added"
+        }
+      ]
+    }
+  ]
+}

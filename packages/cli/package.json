@@ -17,19 +17,25 @@
   },
   "dependencies": {
     "@pr2video/tour": "workspace:*",
-    "@pr2video/voice": "workspace:*"
+    "@pr2video/voice": "workspace:*",
+    "@pr2video/player": "workspace:*"
   },
   "peerDependencies": {
-    "kokoro-js": "catalog:"
+    "kokoro-js": "catalog:",
+    "playwright": "catalog:"
   },
   "peerDependenciesMeta": {
     "kokoro-js": {
+      "optional": true
+    },
+    "playwright": {
       "optional": true
     }
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "playwright": "catalog:"
   }
 }
