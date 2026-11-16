@@ -2,8 +2,8 @@
 
 Nothing here has been published yet. Before the first release:
 
-1. **Repository.** Create the public GitHub repository, then add `repository`, `homepage` and
-   `bugs` to every `packages/*/package.json`, and replace `<owner>` in `README.md`.
+1. **Repository.** `github.com/zhjch05/pr2video`, already named in every package's `repository`,
+   `homepage` and `bugs`, in the plugin manifest and in `README.md`. Create it public and push `main`.
 2. **npm.** `pr2video` and the `@pr2video` scope were free on 2026-11-16. Create the `@pr2video`
    organization on npm (the packages publish with `access: public`).
 3. **License.** MIT was chosen as a default; confirm it.

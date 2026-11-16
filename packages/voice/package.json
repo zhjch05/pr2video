@@ -10,6 +10,15 @@
     "code-review"
   ],
   "license": "MIT",
+  "homepage": "https://github.com/zhjch05/pr2video#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhjch05/pr2video.git",
+    "directory": "packages/voice"
+  },
+  "bugs": {
+    "url": "https://github.com/zhjch05/pr2video/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

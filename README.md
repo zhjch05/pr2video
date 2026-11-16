@@ -17,7 +17,7 @@ voice and the video. No account and no API key: every voice is free and runs on 
 
 ```bash
 # The Claude Code plugin (skill + /pr2video command)
-/plugin marketplace add <owner>/pr2video
+/plugin marketplace add zhjch05/pr2video
 /plugin install pr2video@pr2video
 
 # The CLI (Node 24+, and Docker running for the sandbox)
