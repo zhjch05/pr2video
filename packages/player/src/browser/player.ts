@@ -141,6 +141,12 @@ export class TourPlayer {
   }
 
   private clock = 0
+  /**
+   * Until the first play or seek, the stage shows the first scene where it
+   * stops, unzoomed and without its caption, like a video's poster: a scene's
+   * opening frame is often a page still loading (an empty canvas, a spinner).
+   */
+  private poster = true
   private playing = false
   private speed = 1
   private muted = false
@@ -651,6 +657,12 @@ export class TourPlayer {
     await painted()
   }
 
+  /** The tour time just before the first scene stops on its checkpoint (see `poster`). */
+  private posterMs(): number {
+    const first = this.timeline.scenes[0]
+    return first ? first.offsetMs + Math.max(0, first.pace.approachMs - 1) : 0
+  }
+
   /** Interactive mode: start the clock. */
   start() {
     let last = performance.now()
@@ -663,7 +675,7 @@ export class TourPlayer {
       last = now
       if (!busy) {
         busy = true
-        void this.draw(this.clock, false)
+        void this.draw(this.poster ? this.posterMs() : this.clock, false)
           .then((state) => {
             if (state) {
               this.narrate(state, false)
@@ -688,6 +700,7 @@ export class TourPlayer {
 
   private setPlaying(playing: boolean) {
     this.playing = playing
+    if (playing) this.poster = false
     if (!playing) {
       this.current.replayer?.pause()
       this.driven = { ...this.driven, mode: null }
@@ -703,6 +716,7 @@ export class TourPlayer {
   }
 
   private jump(ms: number) {
+    this.poster = false
     this.clock = Math.min(Math.max(0, ms), this.timeline.totalMs)
     this.driven = { ...this.driven, mode: null }
   }
