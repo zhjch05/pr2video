@@ -3,7 +3,8 @@
 Turn a pull request into a narrated tour of the running app: a replay of the real UI with zoom,
 highlights, captions and a voice, as a self-contained HTML file or an MP4.
 
-pr2video is a **Claude Code plugin plus a CLI**. Your agent, on your own tokens, does the thinking: it
+pr2video is an **agent skill plus a CLI**. It works in Claude Code (as a plugin with a `/pr2video`
+command) and in any coding agent that reads `SKILL.md` skills. Your agent, on your own tokens, does the thinking: it
 reads the change, gets the app running, picks the screens and writes what to say. The CLI does
 everything that has to come out the same every time: the sandbox, the recording, validation, the
 voice and the video. No account and no API key: every voice is free and runs on your machine.
@@ -15,18 +16,43 @@ voice and the video. No account and no API key: every voice is free and runs on 
 
 ## Install
 
-```bash
-# The Claude Code plugin (skill + /pr2video command)
-/plugin marketplace add zhjch05/pr2video
-/plugin install pr2video@pr2video
+The CLI (Node 24+, and Docker running for the sandbox):
 
-# The CLI (Node 24+, and Docker running for the sandbox)
+```bash
 npm install -g pr2video
 npm install -g kokoro-js                                  # optional: the most natural free voice
 npm install -g playwright && npx playwright install chromium   # for MP4 and stills (plus ffmpeg on PATH)
 ```
 
-Then, in Claude Code: `/pr2video https://github.com/acme/shop/pull/12`.
+Then the skill, for your agent:
+
+**Claude Code**: the plugin (skill + `/pr2video` command):
+
+```text
+/plugin marketplace add zhjch05/pr2video
+/plugin install pr2video@pr2video
+```
+
+Then: `/pr2video https://github.com/acme/shop/pull/12`.
+
+**Other agents** (Codex, Cursor, OpenCode and the others that read `SKILL.md` skills): the
+[`skills`](https://github.com/vercel-labs/skills) installer knows where each agent looks:
+
+```bash
+npx skills add zhjch05/pr2video
+```
+
+Or copy the skill that matches your installed CLI into any skills folder your agent reads:
+
+```bash
+pr2video skill install .agents/skills      # makes .agents/skills/pr2video/
+```
+
+For an agent without skills, point it at `skills/pr2video/SKILL.md` and ask it to follow it. Then ask
+your agent to "make a pr2video tour of this pull request".
+
+The skill names the CLI version it was written for, and runs `npx -y pr2video@<that version>` when
+the installed CLI differs, so the two never disagree on commands or flags.
 
 ## Voices
 
@@ -52,6 +78,8 @@ pr2video tour check <tour.json> [--json]      Validate a tour file
 pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
 pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080]
 pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
+pr2video skill install <skills folder>        Copy the agent skill for this version
+pr2video --version
 
 pr2video sandbox up [--head <ref>] [--base <ref>]   One container per run: head + base checked out
 pr2video sandbox exec [--record] -- <command>        Run inside the sandbox

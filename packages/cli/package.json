@@ -28,7 +28,8 @@
   },
   "files": [
     "dist",
-    "image"
+    "image",
+    "skills"
   ],
   "scripts": {
     "build": "node scripts/bundle.ts",

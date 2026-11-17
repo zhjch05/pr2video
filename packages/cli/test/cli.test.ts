@@ -23,7 +23,39 @@ async function pr2video(...args: Array<string>): Promise<{ code: number; json: u
   }
 }
 
+async function pr2videoText(...args: Array<string>): Promise<string> {
+  const { stdout } = await promisify(execFile)("node", [
+    "--conditions=pr2video-source",
+    cli,
+    ...args,
+  ])
+  return stdout.trim()
+}
+
 describe("pr2video", () => {
+  it("prints its version, the one the skill is written for", async () => {
+    const version = await pr2videoText("--version")
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string }
+    expect(version).toBe(manifest.version)
+    const skill = await readFile(join(await pr2videoText("skill", "path"), "SKILL.md"), "utf8")
+    expect(skill).toContain(`npx -y pr2video@${version}\``)
+  })
+
+  it("installs the skill into a skills folder, and will not overwrite it unasked", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-skill-"))
+    await pr2videoText("skill", "install", dir)
+    expect(await readFile(join(dir, "pr2video/SKILL.md"), "utf8")).toMatch(/^---\nname: pr2video\n/)
+    expect(await readFile(join(dir, "pr2video/reference/tour.md"), "utf8")).toContain(
+      "# Writing the tour",
+    )
+    const again = await pr2video("skill", "install", dir, "--json")
+    expect(again.code).toBe(1)
+    expect((again.json as { error: string }).error).toContain("--force")
+    await pr2videoText("skill", "install", dir, "--force")
+  })
+
   it("lists every voice, and none is always ready", async () => {
     const { code, json } = await pr2video("voices", "--json")
     expect(code).toBe(0)

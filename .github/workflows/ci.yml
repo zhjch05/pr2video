@@ -17,6 +17,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: node scripts/version.ts --check
       - run: pnpm check-types
       - run: pnpm build
       - run: pnpm test

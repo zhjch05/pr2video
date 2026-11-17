@@ -3,7 +3,7 @@
 Nothing here has been published yet. Before the first release:
 
 1. **Repository.** `github.com/zhjch05/pr2video`, already named in `packages/cli/package.json` (`repository`,
-   `homepage`, `bugs`), in the plugin manifest and in `README.md`. Create it public and push `main`.
+   `homepage`, `bugs`), in `.claude-plugin/plugin.json` and in `README.md`. Create it public and push `main`.
 2. **npm.** `pr2video` was free on 2026-11-16. It is the only package published (the `@pr2video/*`
    packages are bundled into it and stay private), so no npm organization is needed.
 3. **License.** MIT was chosen as a default; confirm it.
@@ -35,8 +35,8 @@ npm only lets you set up trusted publishing on a package that already exists, so
 
 ## Each release
 
-1. Set the same version in `packages/cli/package.json` and `plugin/.claude-plugin/plugin.json`, and
-   commit it on `main`.
+1. `node scripts/version.ts <version>` (the CLI, the plugin manifest and the skill), and commit it on
+   `main`.
 2. Optionally try the packed package the way a user installs it:
 
    ```bash
@@ -46,11 +46,14 @@ npm only lets you set up trusted publishing on a package that already exists, so
    ```
 
 3. `git tag v<version> && git push origin main v<version>`. `.github/workflows/release.yml` checks
-   the tag matches both versions, runs lint, types, build and tests, publishes to npm with
+   the tag matches every version, runs lint, types, build and tests, publishes to npm with
    provenance, and makes a GitHub release with generated notes and the tarball. A tag with a hyphen
    (`v0.2.0-beta.1`) publishes under npm's `next` tag and as a pre-release.
-4. The plugin installs from the repository's default branch, so users get the new skill as soon as
-   `main` has it; the CLI it calls (`npx pr2video`) updates when npm does.
+4. Claude Code's plugin and `npx skills add` take the skill from `main`, so the skill pins the
+   version it is written for and runs `npx -y pr2video@<version>` when the installed CLI differs.
+   Bump the version together with the release: a skill on `main` that names an unpublished version
+   breaks until the tag is published. `pr2video skill install` copies the skill shipped in the
+   package, so it always matches.
 
 ## What the package ships
 

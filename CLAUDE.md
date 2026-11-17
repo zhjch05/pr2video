@@ -5,7 +5,7 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
 ## Rules
 
 - **The CLI makes no model calls.** Thinking belongs to the user's agent through the skill in
-  `plugin/skills/pr2video/`. A new judgment call becomes skill text plus a `check` command, not a
+  `skills/pr2video/`. A new judgment call becomes skill text plus a `check` command, not a
   prompt inside the CLI.
 - **Everything the agent writes has a `check`** that names each problem by path, worded so the agent
   can fix it. Exit 1 when there are problems.
@@ -24,10 +24,18 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
   peer, loaded with a dynamic import, so the CLI installs light.
 - **Erasable TypeScript only** (`erasableSyntaxOnly`): the CLI runs from source with
   `node --conditions=pr2video-source`, which only strips types.
+- **The skill is agent-neutral.** `skills/pr2video/` follows the Agent Skills format (name,
+  description, license, compatibility, `metadata.version`) and names no agent's tools; anything
+  Claude Code-only goes in `commands/` or `.claude-plugin/`. The repository root is the Claude Code
+  plugin (`.claude-plugin/marketplace.json` → `"./"`), and the same `skills/` folder is what
+  `npx skills add` and `pr2video skill install` copy.
+- **One version, four places**: `packages/cli/package.json`, `.claude-plugin/plugin.json` and the
+  skill's metadata and pinned `npx -y pr2video@<version>`. Change them with
+  `node scripts/version.ts <version>`; CI and the release workflow run `--check`.
 - **Only `pr2video` is published.** The `@pr2video/*` packages are private to this workspace: the
   CLI's build (`packages/cli/scripts/bundle.ts`) bundles them and zod into one `dist/cli.js` and
   copies in what they build for run time (`dist/assets/`: the player bundle and `record.mjs`; `image/`:
-  the sandbox image). The CLI reads those through `src/assets.ts`, never by resolving a package, so
+  the sandbox image) and the skill (`skills/`). The CLI reads those through `src/assets.ts`, never by resolving a package, so
   the published CLI depends on nothing but its optional peers (Playwright, kokoro-js).
 - Workspace packages export `pr2video-source` → `src` first (a condition of our own: bundlers
   resolve `development`), so tests, the dev CLI and the CLI's bundle use the source.

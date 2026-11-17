@@ -29,7 +29,9 @@ tool cannot enforce on someone else's model.
 - `@pr2video/sandbox`: the Docker sandbox, its journal, replay and saved data.
 - `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
   The only published package: its build bundles the five others into it.
-- `plugin/`: the Claude Code plugin: the skill, its references, the `/pr2video` command.
+- `skills/pr2video/`: the agent skill and its references, for any agent that reads `SKILL.md`.
+- `.claude-plugin/` and `commands/`: the repository root is also the Claude Code plugin, adding the
+  `/pr2video` command.
 
 ## The sandbox
 
@@ -60,7 +62,7 @@ host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgre
 - The journal (`.pr2video/<run>/journal.jsonl`) holds only `--record`ed steps that succeeded, and
   `cp --record` copies (the file is kept under the run's `files/`). `replay` stops every
   background process, rewrites `/work/head` to `/work/base`, and stops at the first failure. Making
-  steps replayable is the agent's job (`plugin/skills/pr2video/reference/setup.md`).
+  steps replayable is the agent's job (`skills/pr2video/reference/setup.md`).
 - `up` fetches only the head and base commits into the sandbox (`--depth 1` from the read-only
   `/src`). On the host it first deepens a shallow clone until the merge base is there, and fetches a
   partial clone's missing files of both commits in one batch (`fetch --stdin`, as git's lazy fetch

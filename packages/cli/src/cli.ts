@@ -29,6 +29,7 @@ import {
 } from "@pr2video/voice"
 
 import { buildHtml } from "./assemble.ts"
+import { cliVersion, skillDir } from "./assets.ts"
 import { importBetterReview } from "./import.ts"
 import {
   RECORD_HELP,
@@ -38,6 +39,7 @@ import {
   tourDraft,
 } from "./record-commands.ts"
 import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
+import { installSkill, SKILL_HELP } from "./skill-commands.ts"
 import { renderStills, renderVideo } from "./video.ts"
 
 const HELP = `pr2video - turn a pull request into a narrated tour
@@ -54,6 +56,9 @@ Usage:
   pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
                                                 Single frames as PNGs, exactly as the video draws them
   pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
+  pr2video --version                            This CLI's version
+
+${SKILL_HELP}
 
 ${SANDBOX_HELP}
 
@@ -86,6 +91,8 @@ type Flags = SandboxFlags &
     height?: string
     workers?: string
     help?: boolean
+    version?: boolean
+    force?: boolean
   }
 
 function fail(
@@ -188,6 +195,8 @@ async function main() {
       workers: { type: "string" },
       height: { type: "string" },
       help: { type: "boolean", short: "h" },
+      version: { type: "boolean", short: "v" },
+      force: { type: "boolean" },
     },
   })
   const flags = values as Flags
@@ -196,6 +205,10 @@ async function main() {
 
   if (flags.help && (command === "sandbox" || command === "record" || command === "scenes")) {
     console.log(command === "sandbox" ? SANDBOX_HELP : RECORD_HELP)
+    return
+  }
+  if (flags.version || command === "version") {
+    console.log(await cliVersion())
     return
   }
   if (!command || flags.help || command === "help") {
@@ -384,6 +397,24 @@ async function main() {
     return
   }
 
+  if (command === "skill") {
+    if (rest[0] === "install" && rest[1]) {
+      try {
+        console.log(await installSkill(rest[1], { force: flags.force }))
+      } catch (error) {
+        fail((error as Error).message, flags.json)
+      }
+      return
+    }
+    if (rest[0] === "path") {
+      console.log(await skillDir())
+      return
+    }
+    fail(
+      "usage: pr2video skill install <skills folder> [--force] | pr2video skill path",
+      flags.json,
+    )
+  }
   if (command === "import") {
     const [htmlPath] = rest
     if (!htmlPath || !flags.output) fail("usage: pr2video import <tour.html> -o <dir>", flags.json)
