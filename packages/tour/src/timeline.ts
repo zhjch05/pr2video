@@ -8,7 +8,7 @@
  * Pure: the player and the renderer both draw what this returns, which is what
  * keeps the HTML tour and the MP4 frame for frame the same.
  */
-import type { Box, TourScene } from "./schema.ts"
+import { type Box, fitZoom, type TourScene } from "./schema.ts"
 
 /** The longest a scene's approach takes on screen; a longer drive plays faster. */
 export const APPROACH_MAX_MS = 4_000
@@ -262,8 +262,8 @@ export function zoomTransform(
 }
 
 /**
- * How far to zoom so `box` stays in view: the most of `wanted`, 1.5 and 2 that
- * still leaves a margin round it, else 1. A scene with no focus asks for 2 and
+ * How far to zoom so `box` stays in view: up to `wanted`, as far as still
+ * leaves a margin round it (see `fitZoom`). A scene with no focus asks for 2 and
  * zooms towards its marks; one that would barely magnify shows the page.
  */
 export function fittedZoom(
@@ -271,11 +271,7 @@ export function fittedZoom(
   box: Box,
   wanted: number,
 ): number {
-  if (!stage.width || !stage.height || !box.width || !box.height) return 1
-  const fits = (zoom: number) =>
-    box.width * zoom <= stage.width * 0.86 && box.height * zoom <= stage.height * 0.86
-  for (const zoom of [2, 1.5]) if (zoom <= wanted && fits(zoom)) return zoom
-  return 1
+  return fitZoom(box, stage, wanted)
 }
 
 /** The smallest box around `boxes`; null for none. */

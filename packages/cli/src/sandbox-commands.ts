@@ -3,6 +3,7 @@
  * Human output streams; `--json` answers one object per command.
  */
 import { access } from "node:fs/promises"
+import { relative } from "node:path"
 
 import {
   copyIn,
@@ -18,6 +19,7 @@ import {
   replay,
   resolveRecord,
   restoredSteps,
+  runDir,
   type SandboxRecord,
   saveData,
   start,
@@ -25,6 +27,8 @@ import {
   up,
   waitPort,
 } from "@pr2video/sandbox"
+
+import { ENV_HELP, envCommand } from "./env-commands.ts"
 
 export type SandboxFlags = {
   json?: boolean | undefined
@@ -76,7 +80,9 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
-  pr2video sandbox status | ls [--all] | down`
+  pr2video sandbox status | ls [--all] | down
+
+${ENV_HELP}`
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
@@ -101,6 +107,13 @@ async function storedRecord(cwd: string, run: string | undefined): Promise<Sandb
 export function shellCommand(args: ReadonlyArray<string>): string {
   if (args.length === 1) return (args[0] ?? "").trim()
   return args.map(shellQuote).join(" ")
+}
+
+/** The run's folder (`.pr2video/<run>/`), relative to where the command ran when it is inside. */
+function runFolder(cwd: string, record: SandboxRecord): string {
+  const dir = runDir(record.repo, record.run)
+  const rel = relative(cwd, dir)
+  return rel && !rel.startsWith("..") ? `${rel}/` : `${dir}/`
 }
 
 /** What the head is: a commit, or a copy of the working folder. */
@@ -143,6 +156,8 @@ export async function sandboxCommand(
   const cwd = process.cwd()
 
   switch (sub) {
+    case "env":
+      return envCommand(rest, flags)
     case "up": {
       const record = await up({
         cwd,
@@ -177,6 +192,7 @@ export async function sandboxCommand(
             ? `, base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`
             : ", no base"),
       )
+      say(`run ${record.run}: write scenes and the tour in ${runFolder(cwd, record)}`)
       return 0
     }
     case "exec": {

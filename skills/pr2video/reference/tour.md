@@ -46,7 +46,9 @@ marks what changed, and holds while the caption is read aloud.
       "events": "recordings/head/cart/events.json", // rrweb events, relative to tour.json
       "viewport": { "width": 1280, "height": 800 },
       "startMs": 0, "endMs": 9000, "atMs": 6200,    // the window and the checkpoint, in recording ms
-                                                    // (the scene plays to atMs and holds; endMs only bounds it)
+                                                    // (the scene plays to atMs and holds; endMs only bounds it).
+                                                    // Raise startMs to trim a slow start (a page still
+                                                    // loading, a base waiting for what it lacks); keep it below atMs
       "shotMs": 6350,                               // when the checkpoint's screenshot was taken, if known
       "caption": "The cart now groups items under each supplier, with its own subtotal.",
       "focus": { "box": { "x": 320, "y": 180, "width": 640, "height": 420 }, "node": 412 },

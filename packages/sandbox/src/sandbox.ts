@@ -21,6 +21,14 @@ import { promisify } from "node:util"
 
 import { docker, dockerOrThrow, dockerReady } from "./docker.ts"
 import {
+  readSecrets,
+  refuseValues,
+  scrub,
+  secretsIn,
+  syncSecrets,
+  WITH_SECRETS,
+} from "./secrets.ts"
+import {
   appendJournal,
   type DataManifest,
   type JournalEntry,
@@ -503,6 +511,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     createdAt: new Date().toISOString(),
   }
   await writeRecord(record)
+  await syncSecrets(record.container, await readSecrets(record.repo))
   if (options.from && options.from !== run) await adoptRun(record, options.from, options.log)
   return record
 }
@@ -646,8 +655,13 @@ export async function exec(
   } = {},
 ): Promise<ExecResult> {
   const cwd = options.cwd ?? record.head.dir
+  const secrets = await readSecrets(record.repo)
+  refuseValues(command, secrets)
+  // The file may have been edited by hand since: every command sees it as it is now.
+  await syncSecrets(record.container, secrets)
+  const onOutput = options.onOutput
   const started = Date.now()
-  const result = await docker(
+  const raw = await docker(
     [
       "exec",
       "-e",
@@ -657,10 +671,14 @@ export async function exec(
       record.container,
       "bash",
       "-lc",
-      'eval "$PR2VIDEO_CMD"',
+      WITH_SECRETS,
     ],
-    { timeoutMs: options.timeoutMs ?? 20 * 60_000, onOutput: options.onOutput },
+    {
+      timeoutMs: options.timeoutMs ?? 20 * 60_000,
+      onOutput: onOutput && ((chunk) => onOutput(scrub(chunk, secrets))),
+    },
   )
+  const result = { ...raw, stdout: scrub(raw.stdout, secrets), stderr: scrub(raw.stderr, secrets) }
   const ms = Date.now() - started
   const log = await nextLog(record, "exec")
   await writeFile(
@@ -748,10 +766,13 @@ export async function start(
 ): Promise<{ pid: number; wait: WaitResult | null; recorded: boolean }> {
   validName(name)
   const cwd = options.cwd ?? record.head.dir
+  const secrets = await readSecrets(record.repo)
+  refuseValues(command, secrets)
+  await syncSecrets(record.container, secrets)
   await stop(record, name)
   const launched = await inside(
     record.container,
-    `setsid nohup bash -lc "$PR2VIDEO_CMD" > /var/log/pr2video/${name}.log 2>&1 < /dev/null &
+    `setsid nohup bash -lc '${WITH_SECRETS}' > /var/log/pr2video/${name}.log 2>&1 < /dev/null &
      echo $! > /run/pr2video/${name}.pid
      cat /run/pr2video/${name}.pid`,
     { env: { PR2VIDEO_CMD: command }, cwd, timeoutMs: 30_000 },
@@ -822,7 +843,7 @@ export async function logs(record: SandboxRecord, name: string, lines = 100): Pr
     `tail -n ${Math.max(1, Math.floor(lines))} /var/log/pr2video/${file}.log`,
   )
   if (result.code !== 0) throw new Error(`no log for "${name}"`)
-  return result.stdout
+  return scrub(result.stdout, await readSecrets(record.repo))
 }
 
 export type ReplayStep = { entry: JournalEntry; ok: boolean; detail: string; log?: string }
@@ -855,6 +876,8 @@ export async function replay(
     throw new Error("the journal is empty: record setup steps with `--record` first")
   for (const process of await processes(record))
     if (process.running) await stop(record, process.name)
+  // Secrets set since the sandbox started (or on another of the project's runs).
+  await syncSecrets(record.container, await readSecrets(record.repo))
   // The services the other side started (a database from docker compose):
   // the steps start them again, and a fixed container_name would clash.
   // Their volumes stay, so saved and seeded data is not lost.
@@ -932,6 +955,17 @@ export async function copyIn(
     throw new Error(
       `${from} is or holds .pr2video/${record.run}/files/, where the run keeps its own copies: put your files elsewhere (e.g. .pr2video/${record.run}/mine/)`,
     )
+  if (options.record) {
+    // A kept copy is a file in the run folder: it must not hold a secret's value.
+    const info = await stat(source)
+    if (info.isFile() && info.size < 5_000_000) {
+      const names = secretsIn(await readFile(source, "utf8"), await readSecrets(record.repo))
+      if (names.length)
+        throw new Error(
+          `${from} holds the value of ${names.join(", ")}: a recorded copy would keep it in the run folder. Every command already has ${names.map((n) => `$${n}`).join(", ")} in its environment: write the file from it in a recorded step instead`,
+        )
+    }
+  }
   const parent = to.endsWith("/") ? to : to.slice(0, to.lastIndexOf("/")) || "/"
   await inside(record.container, `mkdir -p '${parent.replace(/'/g, "")}'`)
   await dockerOrThrow(["cp", from, `${record.container}:${to}`])

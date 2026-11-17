@@ -185,6 +185,21 @@ Docker engine for the project's services (`docker compose` works inside), Node 2
 Chromium. A local registry mirror caches Docker Hub pulls, and pnpm/npm caches persist across runs.
 The image (about 2.5 GB) builds on first use.
 
+**Secrets.** The agent generates or fakes what it can (session secrets, a local database, a stub for
+a vendor API) and asks you only for values nobody can make up, such as a test-mode payments key.
+You set those yourself, in your own terminal, so they never pass through the chat:
+
+```bash
+pr2video sandbox env set STRIPE_SECRET_KEY                  # asks for the value without showing it
+pr2video sandbox env import ~/app/.env STRIPE_SECRET_KEY    # or copy it from a file you have
+```
+
+Or add `NAME=value` lines to `.pr2video/secrets.env` in an editor. They stay in that file (readable
+only by you, never committed) and reach the sandbox's
+commands as environment variables. Recorded setup refers to them by name, and every log and piece of
+output shows `***` in their place. Give test-mode keys, not live ones: the app in the sandbox can
+use whatever it is given.
+
 ## Output
 
 - **HTML**: one file with the player, every recording (gzipped) and the narration inline. It opens

@@ -453,10 +453,12 @@ export class TourPlayer {
       this.caption.textContent = scene.caption
     if (showCaption) {
       // Placed by where the zoom ends, so it does not move while zooming:
-      // off the focus and marks above all, then off the controls on show.
+      // off the focus and marks above all, then off the controls and text on
+      // show (a heading at the top counts as much as the controls at the bottom).
       const boxes = [
         ...[focusBox, ...markBoxes].flatMap((b) => (b ? [{ ...b, weight: 20 }] : [])),
         ...this.controlsOnShow(state.index),
+        ...this.textOnShow(state.index),
       ]
       const side = captionSide({ width, height }, target, boxes, this.caption.offsetHeight)
       this.captionWrap.classList.toggle("p2v-caption-top", side === "top")

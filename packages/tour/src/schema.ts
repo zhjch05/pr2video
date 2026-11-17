@@ -139,14 +139,44 @@ export function tourProblems(input: unknown): Array<TourProblem> {
  * never cuts the focus off), so the scene shows at a smaller zoom.
  */
 /** The largest zoom up to `wanted` at which `box` still fits the viewport with a margin. */
+/** Room the focus keeps around it once zoomed, as a share of the stage. */
+const FIT_SHARE = 0.86
+/** A zoom smaller than this reads as a jolt, not a zoom: the scene stays at 1. */
+const MIN_ZOOM = 1.15
+
+/**
+ * How far a focus can be magnified in a viewport: `wanted`, or less when the
+ * box would not fit at that size (the player zooms as far as it fits), or 1
+ * when it cannot be magnified enough to notice.
+ */
+export function fitZoom(
+  box: { width: number; height: number },
+  viewport: { width: number; height: number },
+  wanted: number,
+): number {
+  if (!viewport.width || !viewport.height || !box.width || !box.height) return 1
+  const most = Math.min(
+    wanted,
+    (viewport.width * FIT_SHARE) / box.width,
+    (viewport.height * FIT_SHARE) / box.height,
+  )
+  return most >= MIN_ZOOM ? Math.round(most * 100) / 100 : 1
+}
+
+/**
+ * The zoom level to write for a focus: `wanted`, unless the focus is too big
+ * to magnify at all (then 1). Between the two the player zooms as far as fits.
+ */
 export function zoomThatFits(
   box: { width: number; height: number },
   viewport: { width: number; height: number },
   wanted: 1 | 1.5 | 2,
 ): 1 | 1.5 | 2 {
-  const fits = (zoom: number) =>
-    box.width * zoom <= viewport.width * 0.86 && box.height * zoom <= viewport.height * 0.86
-  return ([2, 1.5] as const).find((zoom) => zoom <= wanted && fits(zoom)) ?? 1
+  if (wanted === 1) return 1
+  const most = fitZoom(box, viewport, wanted)
+  if (most === 1) return 1
+  // 2 that only fits as 1.5 or less is written as 1.5, so the file says what shows.
+  return wanted === 2 && most <= 1.5 ? 1.5 : wanted
 }
 
 export function tourWarnings(tour: Tour): Array<TourProblem> {
@@ -154,11 +184,12 @@ export function tourWarnings(tour: Tour): Array<TourProblem> {
   for (const [i, scene] of tour.scenes.entries()) {
     if (!scene.focus || scene.zoom <= 1) continue
     const { width, height } = scene.focus.box
-    const shown = zoomThatFits(scene.focus.box, scene.viewport, scene.zoom)
-    if (shown === scene.zoom) continue
+    // Zooming less than asked is what the player does anyway; only a zoom that
+    // cannot happen at all is worth a word.
+    if (fitZoom(scene.focus.box, scene.viewport, scene.zoom) > 1) continue
     warnings.push({
       path: `scenes.${i}.zoom`,
-      message: `zoom ${scene.zoom} will show as ${shown}: the focus (${Math.round(width)}x${Math.round(height)}) is too big to magnify that much in ${scene.viewport.width}x${scene.viewport.height}; focus something smaller or set zoom ${shown}`,
+      message: `zoom ${scene.zoom} will show as 1: the focus (${Math.round(width)}x${Math.round(height)}) nearly fills ${scene.viewport.width}x${scene.viewport.height}; focus something smaller or set zoom 1`,
     })
   }
   return warnings

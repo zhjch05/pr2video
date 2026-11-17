@@ -186,7 +186,11 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
             : Math.max(baseCp.shotMs, before.durationMs),
           atMs: baseCp.atMs,
           shotMs: baseCp.shotMs,
-          caption: `${BEFORE_CAPTION} (head: ${spec?.caption ?? scene.title})`,
+          caption:
+            `${BEFORE_CAPTION} (head: ${spec?.caption ?? scene.title})` +
+            (!baseCp.focus && !baseCp.marks.length && (cp.focus || cp.marks.length)
+              ? ". The base has none of the head's focus or marks here: keep this before only if their absence is worth showing"
+              : ""),
           focus: baseCp.focus,
           zoom: spec?.zoom ?? draftZoom(baseCp.focus, baseCp.marks, before.viewport),
           markers: baseCp.marks.map((mark) => ({
