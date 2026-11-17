@@ -23,6 +23,28 @@ export type RecordFlags = {
   fresh?: boolean | undefined
 }
 
+/** `pr2video scenes --help`: what a scene's steps can be. */
+export const SCENES_HELP = `Scene steps (scenes.json; at most 10 actions per scene, checkpoints not counted):
+  { "goto": "/path" }                           Open a page (relative to baseUrl)
+  { "click": <locator> }                         Click
+  { "hover": <locator> }                         Hover
+  { "fill": <locator>, "value": "text" }         Type into a field (shown as typed)
+  { "select": <locator>, "value": "option" }     Pick an option
+  { "check": <locator> } / { "uncheck": <locator> }
+  { "press": "Enter", "on": <locator>, "times": 8 }
+                                                Press a key (on an element, or the page); times repeats it
+  { "waitFor": <locator> }                       Wait until it shows
+  { "wait": 600 }                                Wait n ms (up to 10000)
+  { "scrollTo": <locator> }                      Scroll it to the middle (a checkpoint's focus does this itself)
+  { "checkpoint": "id", "caption": "...", "focus": <locator>, "zoom": 1.5,
+    "marks": [{ "locator": <locator>, "tone": "added|removed|changed|note", "label": null }] }
+                                                Stop here: screenshot, focus, marks, caption
+
+Locators, exactly one of:
+  { "role": "button", "name": "Save" }  { "label": "Email" }  { "text": "Total" }
+  { "placeholder": "Search" }  { "testId": "cart" }  { "css": "div:has(> h2)" }
+  plus "exact": true (the whole name or text, not a part) and "nth": 0 (one of several)`
+
 export const RECORD_HELP = `Recording:
   pr2video scenes check [<scenes.json>] [--json]  Validate a scenes file (default .pr2video/<run>/scenes.json)
   pr2video record [--side head|base] [--scenes <file>] [--only <id,id>]

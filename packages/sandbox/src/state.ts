@@ -130,6 +130,27 @@ export async function dropJournalSteps(
   return dropped
 }
 
+/** Moves step `from` to position `to` (1-based): a step recorded again goes back where it belongs. */
+export async function moveJournalStep(
+  repo: string,
+  run: string,
+  from: number,
+  to: number,
+): Promise<JournalEntry> {
+  const journal = await readJournal(repo, run)
+  const valid = (n: number) => Number.isInteger(n) && n >= 1 && n <= journal.length
+  if (!valid(from) || !valid(to))
+    throw new Error(`steps are 1 to ${journal.length}: cannot move ${from} to ${to}`)
+  const [moved] = journal.splice(from - 1, 1)
+  if (!moved) throw new Error(`no step ${from}`)
+  journal.splice(to - 1, 0, moved)
+  await writeFile(
+    join(runDir(repo, run), "journal.jsonl"),
+    journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+  )
+  return moved
+}
+
 export async function readJournal(repo: string, run: string): Promise<Array<JournalEntry>> {
   let text = ""
   try {

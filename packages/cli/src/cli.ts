@@ -35,6 +35,7 @@ import {
   RECORD_HELP,
   type RecordFlags,
   recordCommand,
+  SCENES_HELP,
   scenesCheck,
   tourDraft,
 } from "./record-commands.ts"
@@ -208,7 +209,13 @@ async function main() {
   const options: VoiceOptions = { speaker: flags.speaker, model: flags.model }
 
   if (flags.help && (command === "sandbox" || command === "record" || command === "scenes")) {
-    console.log(command === "sandbox" ? SANDBOX_HELP : RECORD_HELP)
+    console.log(
+      command === "sandbox"
+        ? SANDBOX_HELP
+        : command === "scenes"
+          ? `${RECORD_HELP}\n\n${SCENES_HELP}`
+          : RECORD_HELP,
+    )
     return
   }
   if (flags.version || command === "version") {

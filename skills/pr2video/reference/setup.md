@@ -60,10 +60,12 @@ on 24; if it does not, run that version for the project's commands with `npx -y 
    when you need the exit code and output; the full output of every command is in
    `.pr2video/<run>/logs/`.
 3. Start servers with `pr2video sandbox start <name> --port <port> --record -- <command>`. It waits
-   until the port answers on `127.0.0.1` or `::1` with a status below 500 (a redirect counts), and fails early if the
-   process exits; then read `pr2video sandbox logs <name>`. A start whose port never answers is not
-   recorded. If a temporary server answers first (a migration screen), add
-   `--path` with a route only the real app serves, e.g. `--path /api/health`.
+   until the port answers on `127.0.0.1` or `::1` with a status below 500 (a redirect counts), and
+   fails early if the process exits; then read `pr2video sandbox logs <name>`. A start whose port
+   never answers is not recorded. If a temporary server answers first (a migration screen), add
+   `--path` with a route only the real app serves, e.g. `--path /api/health`. In a monorepo, start
+   it in the app's own folder with `--cwd /work/head/<app>`; set `BROWSER=none` for a dev server
+   that would try to open a browser.
 4. Check the app answers: `pr2video sandbox exec -- curl -sI http://localhost:<port>/`.
 
 ## Make every recorded step replayable
@@ -162,6 +164,14 @@ something it never does. Seed what each commit's code would have written, in one
 that checks for the change, e.g. `if grep -q license_required src/checkout/progress.ts; then psql
 ... -f head.sql; else psql ... -f base.sql; fi`, and say so in the before scene's caption if it
 matters.
+
+### Data in a browser-only app
+
+An app that keeps its data in the browser (a drawing tool, a local-first editor) has no API to seed
+through. Use the way it opens data itself: a URL it loads from (`/#url=/demo.json`, `?file=`), an
+import of a file served by the dev server (copy it into its public folder, which the framework's
+config names, e.g. Vite's `publicDir`), or a first-run sample. A scene can also start by opening
+the file through the app's own UI.
 
 ### Time in seeded data
 

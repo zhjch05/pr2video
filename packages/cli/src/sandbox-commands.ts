@@ -12,6 +12,7 @@ import {
   type JournalEntry,
   list,
   logs,
+  moveJournalStep,
   processes,
   readJournal,
   replay,
@@ -68,6 +69,8 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox journal                      The recorded setup steps
   pr2video sandbox journal drop <n>[-<m>]       Remove step n, or steps n to m (a wrong step, or ones to
                                                 record again; the steps after them stay)
+  pr2video sandbox journal move <n> <to>        Move step n to position <to> (a step recorded again goes
+                                                back where it belongs)
   pr2video sandbox save [--path <dir,dir>]      Keep the services' data (every Docker volume) and the
                                                 paths, for a later run's up --from
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
@@ -289,6 +292,14 @@ export async function sandboxCommand(
     case "journal": {
       // The journal is a file on the host: reading or editing it needs no running sandbox.
       const record = await storedRecord(cwd, flags.run)
+      if (rest[0] === "move") {
+        const from = integer(rest[1], "the step")
+        const to = integer(rest[2], "where it goes")
+        const moved = await moveJournalStep(record.repo, record.run, from, to)
+        answer({ ok: true, moved, from, to })
+        say(`moved step ${from} to ${to}: ${describeStep(moved)}`)
+        return 0
+      }
       if (rest[0] === "drop") {
         // One step (`drop 3`) or a range (`drop 2-7`, to record a middle step again).
         const [first = "", last = first] = (rest[1] ?? "").split("-")

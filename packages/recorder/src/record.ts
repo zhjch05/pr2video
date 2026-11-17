@@ -193,8 +193,12 @@ async function perform(page: Page, action: Action) {
   else if ("check" in action) await locate(page, action.check).check({ timeout })
   else if ("uncheck" in action) await locate(page, action.uncheck).uncheck({ timeout })
   else if ("press" in action) {
-    if (action.on) await locate(page, action.on).press(action.press, { timeout })
-    else await page.keyboard.press(action.press)
+    for (let i = 0; i < (action.times ?? 1); i++) {
+      // A beat between repeats, so the replay shows each one.
+      if (i) await page.waitForTimeout(120)
+      if (action.on) await locate(page, action.on).press(action.press, { timeout })
+      else await page.keyboard.press(action.press)
+    }
     await settle(page)
   } else if ("waitFor" in action)
     await locate(page, action.waitFor).waitFor({ state: "visible", timeout })
@@ -340,6 +344,7 @@ async function recordScene(
 ): Promise<SceneResult> {
   const dir = join(out, scene.id)
   await mkdir(dir, { recursive: true })
+  log(`${scene.id}: recording (${scene.steps.filter(isCheckpoint).length} checkpoint(s))`)
   const storageState = scene.role ? auth.get(scene.role) : undefined
   const viewport = scene.viewport ?? file.viewport
   const context: BrowserContext = await browser.newContext({

@@ -13,6 +13,12 @@ export type PlayerData = {
   audio: Record<string, string>
   /** By `events` path: when the recorder took its screenshots (`screenshotMoments`), worked out once when the page is built. */
   shots: Record<string, Array<number>>
+  /**
+   * Fonts the recordings share, each once: a recording holds \`p2v-font:<n>\`
+   * where its events had the font's data URL (an app with many web fonts
+   * otherwise carried all of them once per recording).
+   */
+  fonts?: Array<string> | undefined
 }
 
 /** The element the data sits in, and the one the player mounts on. */

@@ -106,7 +106,8 @@ step before its checkpoint.
 ## Steps per scene
 
 A scene holds at most 10 actions (each click, fill, `scrollTo` or `wait` counts; checkpoints do
-not). A longer flow is two scenes, the second starting where the first ended.
+not). A key pressed several times in a row is one action: `{ "press": "ArrowRight", "times": 8 }`.
+`pr2video scenes --help` lists every step and locator. A longer flow is two scenes, the second starting where the first ended.
 
 ## Scenes that change data
 

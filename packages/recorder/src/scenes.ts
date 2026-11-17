@@ -70,8 +70,13 @@ export const actionSchema = z.union([
   z.object({ check: locatorSchema }).strict(),
   z.object({ uncheck: locatorSchema }).strict(),
   z
-    .object({ press: z.string().min(1), ...target })
-    .partial({ on: true })
+    .object({
+      press: z.string().min(1),
+      ...target,
+      /** Press it this many times in a row (one action): arrow keys to pan or move. */
+      times: z.number().int().min(1).max(50),
+    })
+    .partial({ on: true, times: true })
     .strict(),
   z.object({ waitFor: locatorSchema }).strict(),
   z.object({ wait: z.number().int().min(0).max(10_000) }).strict(),

@@ -10,6 +10,7 @@ import {
   dropJournalStep,
   dropJournalSteps,
   type JournalEntry,
+  moveJournalStep,
   readDataManifest,
   readJournal,
   rebase,
@@ -98,6 +99,28 @@ describe("journal", () => {
       "e",
     ])
     await expect(dropJournalSteps(repo, "r1", 2, 5)).rejects.toThrow("no steps 2-5")
+  })
+
+  it("moves a step to another position", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "pr2video-journal-"))
+    await mkdir(runDir(repo, "r1"), { recursive: true })
+    for (const command of ["a", "b", "c", "d"])
+      await appendJournal(repo, "r1", {
+        kind: "exec",
+        command,
+        cwd: "/",
+        exitCode: 0,
+        ms: 1,
+        at: "t",
+      })
+    expect(await moveJournalStep(repo, "r1", 4, 2)).toMatchObject({ command: "d" })
+    expect((await readJournal(repo, "r1")).map((e) => e.kind === "exec" && e.command)).toEqual([
+      "a",
+      "d",
+      "b",
+      "c",
+    ])
+    await expect(moveJournalStep(repo, "r1", 5, 1)).rejects.toThrow("steps are 1 to 4")
   })
 
   it("moves a copy's destination to the base, not its kept file", () => {
