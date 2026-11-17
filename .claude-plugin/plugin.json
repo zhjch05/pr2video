@@ -1,6 +1,6 @@
 {
   "name": "pr2video",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Turn a pull request into a narrated tour of the running app: an rrweb replay with captions and a voice, and optionally an MP4. Your agent does the thinking; the pr2video CLI does the rest.",
   "author": {
     "name": "James Zhang",
