@@ -182,12 +182,12 @@ export function zoomThatFits(
 export function tourWarnings(tour: Tour): Array<TourProblem> {
   const warnings: Array<TourProblem> = []
   for (const [i, scene] of tour.scenes.entries()) {
-    // Two outlines and no words: the viewer cannot tell which one the caption means.
+    // An outline with no words is easy to miss and says nothing.
     const unlabelled = scene.markers.filter((m) => !m.label?.trim()).length
-    if (scene.markers.length >= 2 && unlabelled)
+    if (unlabelled)
       warnings.push({
         path: `scenes.${i}.markers`,
-        message: `${unlabelled} of ${scene.markers.length} marks have no label: with two or more, give each a few words (in scenes.json, then draft again)`,
+        message: `${unlabelled} of ${scene.markers.length} marks have no label: give each a few words saying what to notice (in scenes.json, then draft again)`,
       })
     if (!scene.focus || scene.zoom <= 1) continue
     const { width, height } = scene.focus.box

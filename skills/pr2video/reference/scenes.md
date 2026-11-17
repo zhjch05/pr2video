@@ -43,9 +43,10 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
       { "checkpoint": "switch",
         "caption": "Settings now has a Dark mode switch, under Email notifications.",
         "focus": { "css": ".settings-row:has([role=switch])" },
-        "marks": [{ "locator": { "role": "switch", "name": "Dark mode" }, "tone": "added", "label": null }] },
+        "marks": [{ "locator": { "role": "switch", "name": "Dark mode" }, "tone": "added", "label": "New switch" }] },
       { "click": { "role": "switch", "name": "Dark mode" } },
-      { "checkpoint": "on", "caption": "Turning it on themes the page and confirms with a notice." }
+      { "checkpoint": "on", "caption": "Turning it on themes the page and confirms with a notice.",
+        "marks": [{ "locator": { "text": "Dark mode on" }, "tone": "added", "label": "Confirmation" }] }
     ]
   }]
 }
@@ -108,13 +109,17 @@ full URL (`http://localhost:3000/settings`), with no role.
   prints): a locator that matched several elements (the first was used) or a box off-screen puts
   a focus or mark on the wrong thing. On the head, a checkpoint with marks, no focus and none of
   its marks on the page stops the scene: it is the wrong page.
-- `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
+- **Every checkpoint marks what its caption names, and every mark has a label.** A viewer's eye
+  goes to an outline with words beside it; an outline alone is easy to miss, and a caption with
+  nothing marked leaves them searching the screen. If the caption names a button, a value and a
+  row, mark all three. `scenes check` refuses a checkpoint with no marks or a mark with no label.
+- `marks` (1 to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
-- A mark's `label` is a few words beside its outline ("New filter", "Was 3, now 5"). Give every
-  mark a label when a checkpoint has two or more, so the viewer can tell which outline the caption
-  means; with one mark, `null`. Say what the viewer should notice, not what is already written
-  inside the box: "New button" or "Was 3, now 5", not the button's own text. Write labels here, in `scenes.json`: drafting the tour again takes
+- A mark's `label` is a few words (at most 40 characters) beside its outline, saying what the
+  viewer should notice there: "New filter", "Was 3, now 5", "Greyed out until saved". Not what is
+  already written inside the box: "New button", not the button's own text. With several marks the
+  labels also tell the viewer which outline each part of the caption means. Write labels here, in `scenes.json`: drafting the tour again takes
   marks fresh from this file. The player places each label where it covers the least text; check
   them on a still.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two

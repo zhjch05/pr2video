@@ -162,6 +162,20 @@ export function scenesProblems(input: unknown): Array<ScenesProblem> {
       if (names.has(cp.checkpoint))
         problems.push({ path: `${at}.steps`, message: `duplicate checkpoint "${cp.checkpoint}"` })
       names.add(cp.checkpoint)
+      const where = `${at}.steps.${scene.steps.indexOf(cp)}`
+      // An outline alone is easy to miss, and a caption with nothing outlined
+      // leaves the viewer searching: every checkpoint points, and says what at.
+      if (!cp.marks.length)
+        problems.push({
+          path: `${where}.marks`,
+          message: `checkpoint "${cp.checkpoint}" marks nothing: outline the things its caption names (1-4 marks), each with a label`,
+        })
+      for (const [m, mark] of cp.marks.entries())
+        if (!mark.label?.trim())
+          problems.push({
+            path: `${where}.marks.${m}.label`,
+            message: `give this mark a label of a few words saying what to notice ("New filter", "Was 3, now 5")`,
+          })
     }
     if (scene.steps.length - checkpoints.length > 10)
       problems.push({ path: `${at}.steps`, message: "at most 10 actions per scene; split it" })

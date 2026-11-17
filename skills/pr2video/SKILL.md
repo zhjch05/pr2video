@@ -72,7 +72,9 @@ after the head commit, its first 10 characters, or `folder-...` for a folder). E
    and re-record only the steps that fail.
 3. **Write the scenes** (`.pr2video/<run>/scenes.json`): 1-6 places in the app that show the change
    (or the feature),
-   each with a start URL, a few steps to get there and checkpoints to stop on, with captions. See
+   each with a start URL, a few steps to get there and checkpoints to stop on, with captions. Each
+   checkpoint outlines the things its caption names, and each outline gets a short label saying what
+   to notice: an outline alone is easy to miss. See
    [reference/scenes.md](reference/scenes.md). Find button names, labels and routes in the code,
    then check them on the live page before recording:
 

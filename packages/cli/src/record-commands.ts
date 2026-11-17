@@ -45,8 +45,9 @@ export const SCENES_HELP = `Scene steps (scenes.json; at most 10 actions per sce
   { "wait": 600 }                                Wait n ms (up to 10000)
   { "scrollTo": <locator> }                      Scroll it to the middle (a checkpoint's focus does this itself)
   { "checkpoint": "id", "caption": "...", "focus": <locator>, "zoom": 1.5,
-    "marks": [{ "locator": <locator>, "tone": "added|removed|changed|note", "label": null }] }
-                                                Stop here: screenshot, focus, marks, caption
+    "marks": [{ "locator": <locator>, "tone": "added|removed|changed|note", "label": "New switch" }] }
+                                                Stop here: screenshot, focus, marks, caption.
+                                                Every checkpoint needs 1-4 marks, each with a label
 
 Locators, exactly one of:
   { "role": "button", "name": "Save" }  { "label": "Email" }  { "text": "Total" }

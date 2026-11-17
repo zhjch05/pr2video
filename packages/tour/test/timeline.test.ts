@@ -208,9 +208,10 @@ describe("tourWarnings", () => {
   const tour = (labels: Array<string | null>) =>
     ({ version: 1, title: "T", summary: "", scenes: [scene(labels)] }) as never
 
-  it("asks for labels when a scene has two or more marks", () => {
+  it("asks for a label on every mark", () => {
     expect(tourWarnings(tour(["New", null])).map((w) => w.path)).toEqual(["scenes.0.markers"])
+    expect(tourWarnings(tour([null])).map((w) => w.path)).toEqual(["scenes.0.markers"])
     expect(tourWarnings(tour(["New", "Old"]))).toEqual([])
-    expect(tourWarnings(tour([null]))).toEqual([])
+    expect(tourWarnings(tour([]))).toEqual([])
   })
 })

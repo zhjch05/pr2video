@@ -16,7 +16,11 @@
           "focus": { "role": "switch", "name": "Dark mode" },
           "zoom": 2,
           "marks": [
-            { "locator": { "role": "switch", "name": "Dark mode" }, "tone": "added", "label": null }
+            {
+              "locator": { "role": "switch", "name": "Dark mode" },
+              "tone": "added",
+              "label": "New switch"
+            }
           ]
         },
         { "click": { "role": "switch", "name": "Dark mode" } },

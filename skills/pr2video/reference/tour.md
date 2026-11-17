@@ -27,9 +27,9 @@ marks what changed, and holds while the caption is read aloud.
   check` warns when it will not.
 - `markers`: up to four, the exact things the caption names, each with a `tone`: `added`, `removed`,
   `changed` for what a change did, `note` for anything else worth pointing at (every mark, in a tour
-  of the app with no change). Give each a short
-  `label` when there are two or more; otherwise `null`. Labels come from `scenes.json` (see
-  scenes.md), so change them there.
+  of the app with no change). Every marker has a short `label` saying what to notice there.
+  Labels come from `scenes.json` (see scenes.md), so change them there; `tour check` warns about
+  any marker without one.
 - Boxes are viewport pixels at the checkpoint. Give the recorder's `node` id when you have it: the
   player then measures that node in the replay.
 
