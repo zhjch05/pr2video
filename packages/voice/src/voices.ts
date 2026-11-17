@@ -33,6 +33,8 @@ export type VoiceOptions = {
 export interface Voice {
   readonly id: VoiceId
   readonly description: string
+  /** What the voice's licence allows done with its audio, when that limits sharing a tour. */
+  readonly terms?: string
   available(options?: VoiceOptions): Promise<Availability>
   /** The caption spoken, as WAV bytes. */
   synthesize(text: string, options?: VoiceOptions): Promise<Uint8Array>
@@ -61,6 +63,8 @@ async function viaTempWav(write: (path: string) => Promise<void>): Promise<Uint8
 const say: Voice = {
   id: "say",
   description: "macOS built-in speech (no install, macOS only)",
+  terms:
+    "Apple's macOS licence allows its system voices only in your own personal, non-commercial content, not in a tour you publish or share; use kokoro for that",
   async available() {
     if (process.platform !== "darwin") return { ok: false, reason: "`say` exists only on macOS" }
     return (await onPath("say")) ? { ok: true } : { ok: false, reason: "`say` is not on PATH" }
@@ -106,6 +110,8 @@ function piperModel(options?: VoiceOptions): string | undefined {
 const piper: Voice = {
   id: "piper",
   description: "Piper neural TTS (needs piper and a voice model)",
+  terms:
+    "each Piper voice model has its own licence (some are non-commercial): check its model card before sharing a tour",
   async available(options) {
     if (!(await onPath("piper")))
       return { ok: false, reason: "piper is not installed", install: PIPER_INSTALL }

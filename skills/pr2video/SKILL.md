@@ -112,6 +112,9 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    ```
 
    Narration reuses a clip whose caption did not change, so edit captions and narrate again freely.
+   When `narrate` prints a `note` about the voice's licence (macOS `say`: personal, non-commercial
+   use only; Piper: per model), pass it on to the user with the files, and offer kokoro if the tour
+   will be shared.
 
 6. **Deliver.** Render the tour as one HTML file, and as an MP4 when the user wants a video:
 

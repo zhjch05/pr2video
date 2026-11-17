@@ -7,3 +7,4 @@ dist/
 packages/cli/image/
 packages/cli/README.md
 packages/cli/skills/
+packages/cli/THIRD_PARTY_NOTICES.md

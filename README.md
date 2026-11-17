@@ -37,7 +37,7 @@ voice and the video. No account and no API key: every voice is free and runs on 
 
 | For | Install |
 |---|---|
-| A natural voice | macOS `say` needs nothing; else `npm i -g kokoro-js` (90 MB model, once), Piper or eSpeak. Or no voice: captions only |
+| A natural voice | macOS `say` needs nothing (personal, non-commercial use only); else `npm i -g kokoro-js` (90 MB model, once), Piper or eSpeak. Or no voice: captions only |
 | MP4 export | `ffmpeg` on PATH, and once `pr2video browser install` (the Chromium build it draws with) |
 | Still frames (`render --frame`) | that Chromium, as above |
 | MP3 narration | `ffmpeg`; without it, narration is WAV |
@@ -93,13 +93,16 @@ the installed CLI differs, so the two never disagree on commands or flags.
 
 All free and local. `--voice auto` (the default) picks the best one available.
 
-| Voice | Quality | Needs |
-|---|---|---|
-| `kokoro` | Natural (Kokoro-82M, Apache-2.0) | `npm i -g kokoro-js`; ~90 MB model downloaded on first use to `~/.cache/pr2video` |
-| `say` | Good | macOS only, nothing to install |
-| `piper` | Natural | `pipx install piper-tts` and a voice model (`--model` or `PIPER_MODEL`) |
-| `espeak` | Robotic | `brew install espeak-ng` / `apt install espeak-ng` |
-| `none` | - | Captions only; each scene holds for reading time |
+| Voice | Quality | Needs | Sharing the audio |
+|---|---|---|---|
+| `kokoro` | Natural (Kokoro-82M, Apache-2.0) | `npm i -g kokoro-js`; ~90 MB model downloaded on first use to `~/.cache/pr2video` | Free to share, commercially too |
+| `say` | Good | macOS only, nothing to install | **Personal, non-commercial use only** (Apple's licence) |
+| `piper` | Natural | `pipx install piper-tts` and a voice model (`--model` or `PIPER_MODEL`) | Depends on the voice model |
+| `espeak` | Robotic | `brew install espeak-ng` / `apt install espeak-ng` | Free to share |
+| `none` | - | Captions only; each scene holds for reading time | - |
+
+For a tour you will publish or share, use `kokoro` (or no voice): `--voice auto` picks `say` on a
+Mac without kokoro, and `narrate` then prints a note saying so. See [Licences](#licences).
 
 Narration is written as MP3 when `ffmpeg` is on your PATH, otherwise WAV.
 
@@ -156,6 +159,30 @@ pnpm check-types && pnpm lint && pnpm test && pnpm build
 pnpm pr2video --help        # runs the CLI from source
 ```
 
-## License
+## Licences
 
-MIT
+pr2video is [MIT](LICENSE). What it makes, and what it is built from, carry their own terms:
+
+- **Bundled code.** The published package and every tour's player include rrweb, zod and a few
+  small packages inside rrweb, all MIT. Their notices are in
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), shipped in the npm package, and at the top of
+  the player script inside every tour HTML.
+- **Narration.** The audio a voice makes is under that voice's terms:
+  - Kokoro-82M is Apache-2.0, free to use and share.
+  - macOS system voices (`say`): Apple's macOS licence allows them only in your own personal,
+    non-commercial content, and rules out recording or publishing them for commercial, non-profit
+    or public sharing. Do not share a tour narrated with `say`; narrate it again with kokoro.
+  - Piper voice models each have their own licence, and some are non-commercial: check the voice's
+    model card.
+  - eSpeak NG is GPL-3.0; pr2video runs it as a separate program, and its speech is yours to use.
+- **The recording.** A tour embeds a recording of your app: its text, images and the fonts it
+  serves. Sharing the tour is sharing those; that is yours to decide.
+- **Installed separately**, under their own licences: Playwright (Apache-2.0) and its Chromium,
+  ffmpeg, kokoro-js (Apache-2.0), Piper, eSpeak NG, and the software the sandbox image is built
+  from on your machine (Debian, Node, Docker). pr2video does not redistribute them.
+
+pr2video is an independent project, not affiliated with Anthropic, OpenAI, Cursor, Google, Apple or
+the authors of the voices and libraries it uses; their names are used only to say what pr2video
+works with.
+
+This section explains what we found in each licence; it is not legal advice.

@@ -43,6 +43,8 @@ const sandbox = dirname(dirname(fromPackage("@pr2video/sandbox")))
 await cp(`${sandbox}/image`, `${root}image`, { recursive: true })
 // The agent skill, so `pr2video skill install` gives the skill written for this version.
 await cp(`${root}../../skills/pr2video`, `${root}skills/pr2video`, { recursive: true })
+// The licences of the third-party code bundled in.
+await cp(`${root}../../THIRD_PARTY_NOTICES.md`, `${root}THIRD_PARTY_NOTICES.md`)
 // npm shows the package's README; the repository's is the one to show.
 await cp(`${root}../../README.md`, `${root}README.md`)
 console.log(`bundled ${root}dist/cli.js`)

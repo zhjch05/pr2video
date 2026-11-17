@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url"
 
 import { build } from "esbuild"
 
+import { playerNotice } from "../src/notices.ts"
+
 const root = fileURLToPath(new URL("..", import.meta.url))
 const out = `${root}dist/bundle`
 
@@ -21,6 +23,8 @@ await build({
   minify: true,
   conditions: ["pr2video-source"],
   legalComments: "eof",
+  // Every tour page inlines this script: the licences of what it contains go with it.
+  banner: { js: playerNotice() },
   outfile: `${out}/player.js`,
   logLevel: "warning",
 })
@@ -30,5 +34,5 @@ const css = [
   await readFile(rrwebCss, "utf8"),
   await readFile(`${root}src/browser/player.css`, "utf8"),
 ]
-await writeFile(`${out}/player.css`, css.join("\n"))
+await writeFile(`${out}/player.css`, [playerNotice(), ...css].join("\n"))
 console.log(`bundled ${out}`)

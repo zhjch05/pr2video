@@ -223,6 +223,7 @@ async function main() {
       VOICE_IDS.map(async (id) => ({
         id,
         description: VOICES[id].description,
+        terms: VOICES[id].terms ?? null,
         ...(await VOICES[id].available(options)),
       })),
     )
@@ -235,6 +236,7 @@ async function main() {
         ? "ready"
         : `unavailable: ${row.reason}${row.install ? `\n           install: ${row.install}` : ""}`
       console.log(`${row.id.padEnd(8)} ${row.description}\n           ${status}`)
+      if (row.terms) console.log(`           note: ${row.terms}`)
     }
     console.log(`\nauto picks: ${await defaultVoice(options)}`)
     return
@@ -252,6 +254,7 @@ async function main() {
         ? JSON.stringify({ ok: true, voice, ...clip }, null, 2)
         : `${clip.path} (${voice}, ${(clip.durationMs / 1000).toFixed(1)}s)`,
     )
+    if (!flags.json && VOICES[voice].terms) console.error(`note: ${VOICES[voice].terms}`)
     return
   }
 
@@ -264,11 +267,19 @@ async function main() {
     const voice = await chooseVoice(flags, options)
     const log = flags.json ? undefined : (line: string) => console.log(line)
     const result = await narrateTour(tourPath, voice, { ...options, log })
+    const terms = VOICES[voice].terms ?? null
     if (flags.json)
       console.log(
-        JSON.stringify({ ok: true, voice, spoken: result.spoken, reused: result.reused }, null, 2),
+        JSON.stringify(
+          { ok: true, voice, spoken: result.spoken, reused: result.reused, terms },
+          null,
+          2,
+        ),
       )
-    else console.log(`${voice}: ${result.spoken} spoken, ${result.reused} reused`)
+    else {
+      console.log(`${voice}: ${result.spoken} spoken, ${result.reused} reused`)
+      if (terms) console.log(`note: ${terms}`)
+    }
     return
   }
 

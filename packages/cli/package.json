@@ -29,7 +29,8 @@
   "files": [
     "dist",
     "image",
-    "skills"
+    "skills",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "node scripts/bundle.ts",

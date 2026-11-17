@@ -32,6 +32,9 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
 - **One version, four places**: `packages/cli/package.json`, `.claude-plugin/plugin.json` and the
   skill's metadata and pinned `npx -y pr2video@<version>`. Change them with
   `node scripts/version.ts <version>`; CI and the release workflow run `--check`.
+- **Bundled third-party code needs its notice.** Adding a runtime dependency that ends up inside
+  `dist/` or the player bundle means a row in `packages/player/src/notices.ts` and in
+  `THIRD_PARTY_NOTICES.md` (a test checks they agree; the player script opens with the notice).
 - **Only `pr2video` is published.** The `@pr2video/*` packages are private to this workspace: the
   CLI's build (`packages/cli/scripts/bundle.ts`) bundles them and zod into one `dist/cli.js` and
   copies in what they build for run time (`dist/assets/`: the player bundle and `record.mjs`; `image/`:
