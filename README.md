@@ -1,9 +1,50 @@
 # pr2video
 
-Make a narrated video tour of your web app from its project folder: a replay of the real UI with
-zoom, highlights, captions and a voice, as a self-contained HTML file or an MP4. Tour what a pull
-request, a branch or your uncommitted work changed (with "before" scenes from the base), or just the
-app itself: a feature, a flow, an onboarding demo. No pull request and no git required.
+Show what your web app actually does, by running it and using it the way a person would, then
+recording that as a narrated tour: a replay of the real UI with zoom, highlights, captions and a
+voice, as a self-contained HTML file or an MP4. Tour what a pull request, a branch or your uncommitted
+work changed (with "before" scenes from the base), or just the app itself: a feature, a flow, an
+onboarding demo. No pull request and no git required.
+
+## What this is, and is not
+
+**pr2video is not a general video maker.** A capable coding model can already script a slideshow,
+an animation or a mock-up of an app on its own. That video shows what the model *thinks* the app
+does. pr2video's video shows what the app *did*, because it is a recording of the app running.
+
+The hard part is not the video; it is **the environment**. To film a real flow, pr2video:
+
+1. **Reproduces the app** from its source in a throwaway sandbox: installs dependencies, starts its
+   databases and services, builds and serves it, and seeds the data the flow needs (users, records,
+   a signed-in session). The agent works out how, and every setup step is journaled so the same
+   environment can be rebuilt for the base commit or the next run.
+2. **Drives it like a person would test it**, in a real browser: the clicks, typing and waits of a
+   human test flow, stopping at checkpoints, with the screenshot and the elements on screen recorded
+   at each one.
+3. **Shows what happened**: the replay is the recorded page itself, the highlights are the elements
+   measured at each checkpoint, and the agent writes each caption from that checkpoint's screenshot.
+   A step that fails, or a screen the app never reached, is reported, not drawn.
+
+The tour is the evidence of that run: the change, or the feature, working in the real app.
+
+## Scope
+
+**Today: web apps with a browser UI.** Anything that serves pages a browser can open, from a static
+site to a full-stack app with its database and services (`docker compose` works inside the sandbox),
+as long as it builds and runs in a Linux container.
+
+**Not yet:**
+
+- Changes with no screen of their own: a CLI or terminal tool, a database migration, an API with no
+  page that shows its result, a library.
+- Desktop, mobile and other non-web apps.
+
+We may add these later: dedicated skills for terminal sessions, database changes and API changes,
+each with its own way to show the result, and general computer use to record non-web apps. Until
+then, for a change with no UI the skill says so: it stops, or, when only a screen elsewhere shows
+the result, asks you before filming that.
+
+## How it works
 
 pr2video is an **agent skill plus a CLI**. It works in Claude Code (as a plugin with a `/pr2video`
 command) and in any coding agent that reads `SKILL.md` skills. Your agent, on your own tokens, does the thinking: it
@@ -13,7 +54,8 @@ voice and the video. No account and no API key: every voice is free and runs on 
 
 > **Status: early.** Every stage works end to end (sandbox, recording, tour, narration, HTML and MP4).
 > An agent with only the skill has made tours of three real open-source pull requests (a Vue app on
-> phone widths, a Next.js app with Postgres, a Go + React app with before/after dialogs). See
+> phone widths, a Next.js app with Postgres, a Go + React app with before/after dialogs) and of one
+> app with no pull request at all (it-tools, from a plain folder). See
 > [docs/design.md](docs/design.md).
 
 ## Requirements

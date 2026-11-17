@@ -1,8 +1,20 @@
 # Design
 
+## What it is for
+
+pr2video's value is the environment, not the video: reproduce a web app from its source in a
+sandbox (dependencies, services, data, sign-in), drive it in a real browser the way a person tests
+it, and record what it did. The tour is the evidence of that run. A model can already make a video
+of what it imagines an app does; pr2video records what the app does.
+
+Scope is web apps with a browser UI. Changes without a screen (terminal tools, database
+migrations, APIs nothing shows, libraries) and non-web apps are out of scope for now. Candidates
+for later: dedicated skills for terminal sessions, database changes and API changes, each with its
+own way to show a result, and general computer use to record non-web apps.
+
 ## The split
 
-The user's agent (Claude Code, on their tokens) does all the model work. The CLI makes no model calls.
+The user's agent (Claude Code or another coding agent, on their tokens) does all the model work. The CLI makes no model calls.
 
 | Phase | The agent | The CLI |
 |---|---|---|

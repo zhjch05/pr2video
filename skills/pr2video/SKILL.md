@@ -1,6 +1,6 @@
 ---
 name: pr2video
-description: Make a narrated video tour of a web app from its source folder - an rrweb replay of the running app with captions, zoom, highlights and a voice, as HTML or MP4. Use when the user asks to demo, show, walk through or make a video of a pull request, a branch, a diff or uncommitted work, or of the app itself (a feature, a flow, an onboarding tour).
+description: Make a narrated video tour of a web app from its source folder, by running it in a sandbox and using it like a person testing it - an rrweb replay of the real UI with captions, zoom, highlights and a voice, as HTML or MP4. Web apps with a browser UI only. Use when the user asks to demo, show, walk through or make a video of a pull request, a branch, a diff or uncommitted work, or of the app itself (a feature, a flow, an onboarding tour).
 license: MIT
 compatibility: Needs Node 24+, Docker (the app runs in a sandbox container), git, and for an MP4 ffmpeg and Playwright's Chromium. Works in any agent that can run shell commands.
 metadata:
@@ -22,7 +22,9 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
 
 ## Phases
 
-1. **Decide what the tour shows.** There are two kinds:
+1. **Decide what the tour shows.** pr2video films web apps with a browser UI only. If the project
+   has none (a CLI or terminal tool, a library, a desktop or mobile app), say so and stop: there is
+   no screen to record, and an invented one is not a tour. There are two kinds of tour:
    - **A change** (a pull request, a branch, a commit range, or uncommitted work): read the diff
      (`gh pr diff <n>`, `git diff base...head`, or `git diff` for uncommitted work) and the code it
      touches, and write two sentences on what changed for a user of the app. The tour shows the
