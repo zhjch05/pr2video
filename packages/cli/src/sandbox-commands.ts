@@ -2,6 +2,8 @@
  * `pr2video sandbox ...`: the sandbox an agent sets the pull request up in.
  * Human output streams; `--json` answers one object per command.
  */
+import { access } from "node:fs/promises"
+
 import {
   copyIn,
   down,
@@ -38,6 +40,7 @@ export type SandboxFlags = {
   path?: string | undefined
   from?: string | undefined
   folder?: boolean | undefined
+  all?: boolean | undefined
   data?: boolean | undefined
   side?: string | undefined
 }
@@ -70,7 +73,7 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
-  pr2video sandbox status | ls | down`
+  pr2video sandbox status | ls [--all] | down`
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
@@ -333,8 +336,22 @@ export async function sandboxCommand(
       return 0
     }
     case "ls": {
-      const found = await list()
+      // This project's sandboxes; --all for every project's on this machine.
+      const { repoRoot, runDir } = await import("@pr2video/sandbox")
+      const repo = await repoRoot(cwd)
+      const all = await list()
+      const mine = await Promise.all(
+        all.map((s) =>
+          access(runDir(repo, s.run)).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      )
+      const found = flags.all ? all : all.filter((_, i) => mine[i])
       answer({ sandboxes: found })
+      if (!flags.all && found.length < all.length)
+        say(`(${all.length - found.length} more from other projects: --all lists them)`)
       for (const s of found)
         say(`${s.run.padEnd(14)} ${s.state.padEnd(8)} ${s.container}  ${s.created}`)
       if (!found.length) say("no sandboxes")

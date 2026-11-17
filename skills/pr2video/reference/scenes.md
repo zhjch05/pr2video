@@ -68,7 +68,9 @@ production build. A failed sign-in leaves `recordings/<side>/.auth-<role>-stoppe
 ## Locators
 
 Exactly one of: `role` (+ optional `name`), `label`, `text`, `placeholder`, `testId`, `css`. Add
-`exact: true` for an exact name or text, and `nth` to pick one of several. Prefer role and name, as
+`exact: true` for an exact name or text, and `nth` to pick one of several. Without `exact`, `name`
+and `text` match a part: `{ role: "button", name: "Avery Chen" }` also matches "Avery Chen's org",
+and the first match on the page wins (`record` prints a note when a locator matched several). Prefer role and name, as
 a person would describe it; read the component's code for the accessible name. Use `css` only when
 nothing else names it: it is Playwright's selector engine, so `:has-text("Total")` and `:has(...)`
 work as well as plain CSS.
@@ -95,6 +97,12 @@ work as well as plain CSS.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
 
+## Menus, popovers and dialogs
+
+The recorder waits up to 2s for opening animations to finish before it measures a checkpoint, so
+an outline lands where the menu settled. A menu that animates for longer wants a `{ "wait": 600 }`
+step before its checkpoint.
+
 ## Steps per scene
 
 A scene holds at most 10 actions (each click, fill, `scrollTo` or `wait` counts; checkpoints do
@@ -105,6 +113,9 @@ not). A longer flow is two scenes, the second starting where the first ended.
 A scene that creates or deletes something (adds a record, sends a form) changes what the next
 scene, and the next recording of itself, finds. Keep the tour replayable:
 
+- `sandbox replay` (either side) runs the setup again from scratch: data a scene created is gone
+  afterwards. Re-record a scene that needs it after the scene that makes it, in one `record --only
+  a,b` (scenes record in the scenes file's order). `--only` keeps every other scene's recording.
 - Record a scene that creates data first, then the seeding that depends on it, as recorded setup
   steps, then the scenes that show the result (`record --only <ids>` records some scenes and keeps
   the others).

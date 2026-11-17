@@ -183,6 +183,7 @@ async function main() {
       "no-base": { type: "boolean" },
       from: { type: "string" },
       folder: { type: "boolean" },
+      all: { type: "boolean" },
       data: { type: "boolean" },
       port: { type: "string" },
       tail: { type: "string" },

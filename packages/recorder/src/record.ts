@@ -476,6 +476,24 @@ async function checkpoint(
       await page.waitForTimeout(300)
     }
   }
+  // A menu or dialog still opening would be measured mid-flight, and its
+  // outline drawn where it was: wait (briefly) for finite animations to end.
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .every(
+            (a) =>
+              a.playState !== "running" ||
+              a.effect?.getComputedTiming().iterations === Number.POSITIVE_INFINITY,
+          ),
+      null,
+      { timeout: 2_000, polling: 50 },
+    )
+    .catch(() => undefined)
+  // Measured again once still (only when it was found: a missing one would wait out a timeout).
+  if (step.focus && focus) focus = await measure(locate(page, step.focus)).catch(() => focus)
   const at = Date.now()
   const notes: Array<string> = step.focus ? await notesFor(page, step.focus, focus) : []
   const marks: RecordedCheckpoint["marks"] = []
@@ -490,6 +508,7 @@ async function checkpoint(
     marks.push({ ...measured, tone: mark.tone, label: mark.label })
   }
   for (const note of notes) log(`${scene.id} ${step.checkpoint}: note: ${note}`)
+  for (const gone of missing) log(`${scene.id} ${step.checkpoint}: missing: ${gone}`)
   // On the head the marks are what the caption names: none of them there, and
   // no focus to say otherwise, is a scene on the wrong page.
   if (side === "head" && !step.focus && step.marks.length > 0 && marks.length === 0)
