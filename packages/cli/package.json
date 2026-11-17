@@ -1,6 +1,6 @@
 {
   "name": "pr2video",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Make a narrated video tour of a web app - of a pull request, a change or a feature: an rrweb replay with captions and a free local voice, as HTML or MP4.",
   "keywords": [
     "pull-request",

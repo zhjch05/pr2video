@@ -1,6 +1,6 @@
 {
   "name": "pr2video",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Make a narrated video tour of a web app from its project folder - of a pull request, a change or a feature: an rrweb replay with captions, zoom and a free local voice, as HTML or MP4. Your agent does the thinking; the pr2video CLI does the rest.",
   "author": {
     "name": "James Zhang",
