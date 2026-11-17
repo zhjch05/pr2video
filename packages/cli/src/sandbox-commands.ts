@@ -207,6 +207,12 @@ export async function sandboxCommand(
       const ok = result.wait ? result.wait.ok : true
       answer({ ok, name, ...result })
       say(`${name}: pid ${result.pid}${result.wait ? `, ${result.wait.status}` : ""}`)
+      if (flags.record)
+        say(
+          result.recorded
+            ? `recorded as step ${(await readJournal(record.repo, record.run)).length}`
+            : "not recorded (nothing answered): fix it and start it again",
+        )
       if (!ok) say(`see its output: pr2video sandbox logs ${name}`)
       return ok ? 0 : 1
     }
@@ -328,6 +334,9 @@ export async function sandboxCommand(
       await down(record)
       answer({ ok: true, removed: record.container })
       say(`removed ${record.container} (its journal and logs stay in .pr2video/${record.run}/)`)
+      say(
+        "pr2video-mirror, the Docker Hub pull cache every sandbox shares, keeps running for the next run (a few MB of memory); `docker rm -f pr2video-mirror` removes it, and the next `sandbox up` starts it again",
+      )
       return 0
     }
     default:

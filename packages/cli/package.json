@@ -36,15 +36,14 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "playwright": "catalog:"
+  },
   "peerDependencies": {
-    "kokoro-js": "^1.2.0",
-    "playwright": "^1.50.0"
+    "kokoro-js": "^1.2.0"
   },
   "peerDependenciesMeta": {
     "kokoro-js": {
-      "optional": true
-    },
-    "playwright": {
       "optional": true
     }
   },
@@ -57,7 +56,6 @@
     "esbuild": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "playwright": "catalog:"
+    "vitest": "catalog:"
   }
 }

@@ -26,6 +26,12 @@ work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring
 `--record` keeps a copy in the run and journals the copy, so replay brings the same file. Keep it out
 of the project's own files and under `.pr2video/<run>/` on the host.
 
+## Node versions
+
+The sandbox has Node 24. A project that pins another (`.nvmrc`, `engines`, `volta`) usually runs
+on 24; if it does not, run that version for the project's commands with `npx -y node@<version>`
+(e.g. `npx -y node@18 node_modules/.bin/vite build`), recorded like any other step.
+
 ## How to work
 
 1. Read how the project runs before running anything: `README`, `package.json` scripts,
@@ -36,8 +42,9 @@ of the project's own files and under `.pr2video/<run>/` on the host.
    when you need the exit code and output; the full output of every command is in
    `.pr2video/<run>/logs/`.
 3. Start servers with `pr2video sandbox start <name> --port <port> --record -- <command>`. It waits
-   until the port answers with a status below 500, and fails early if the process exits; then read
-   `pr2video sandbox logs <name>`. If a temporary server answers first (a migration screen), add
+   until the port answers on `127.0.0.1` or `::1` with a status below 500, and fails early if the
+   process exits; then read `pr2video sandbox logs <name>`. A start whose port never answers is not
+   recorded. If a temporary server answers first (a migration screen), add
    `--path` with a route only the real app serves, e.g. `--path /api/health`.
 4. Check the app answers: `pr2video sandbox exec -- curl -sI http://localhost:<port>/`.
 

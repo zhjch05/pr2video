@@ -13,9 +13,9 @@ You make a short narrated tour of a web app, the way an engineer would demo it t
 pull request or other change did, or simply a feature or flow the user names. **You do the thinking**:
 what to show, how to get the app running, which screens show it, and what to say. **The `pr2video` CLI does everything that must come out
 the same every time**: the sandbox, recording, validation, the voice, and the HTML and MP4 output.
-This skill is written for pr2video 0.0.3. Check `pr2video --version` first; if it is missing or
-different, use `npx -y pr2video@0.0.3` wherever this skill says `pr2video`, so the commands and
-flags match what is written here. Pass `--json` when you need to act on the output.
+This skill is written for pr2video 0.0.3: if `pr2video --version` does not print that (or you
+were told to use npx), use `npx -y pr2video@0.0.3` wherever this skill says `pr2video`, so the
+commands and flags match what is written here. Pass `--json` when you need to act on the output.
 
 Work in `.pr2video/<run>/` in the user's project folder. Every file you write there is checked by a
 `pr2video ... check` command: **loop until the check passes**, and never hand-edit what the CLI wrote.
@@ -117,8 +117,11 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
 
    ```bash
    pr2video render .pr2video/<run>/tour.json --html .pr2video/<run>/tour.html
-   pr2video render .pr2video/<run>/tour.json --mp4 .pr2video/<run>/tour.mp4   # needs ffmpeg + Chromium
+   pr2video render .pr2video/<run>/tour.json --mp4 .pr2video/<run>/tour.mp4   # needs ffmpeg
    ```
+
+   The MP4 and `--frame` stills draw in Chromium: if `render` says it cannot start Chromium, run
+   `pr2video browser install` once.
 
    The MP4 takes about a third of the tour's length, more on a machine with few cores. Its shape follows the first scene's
    viewport (a phone viewport gives a portrait video). Tell the user where the files are, the

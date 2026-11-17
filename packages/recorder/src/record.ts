@@ -377,6 +377,17 @@ async function checkpoint(
       missing.push(describe(step.focus))
     }
   }
+  if (!step.focus && step.marks[0]) {
+    // No focus to centre: bring the first mark into view if it is not, so a
+    // mark is never drawn on something off-screen.
+    const first = locate(page, step.marks[0].locator)
+    const box = await first.boundingBox().catch(() => null)
+    const view = page.viewportSize()
+    if (box && view && (box.y < 0 || box.y + box.height > view.height)) {
+      await centre(first).catch(() => undefined)
+      await page.waitForTimeout(300)
+    }
+  }
   const at = Date.now()
   const marks: RecordedCheckpoint["marks"] = []
   for (const mark of step.marks) {

@@ -7,8 +7,10 @@
  * matches the HTML tour. The frames are split between several pages, each
  * encoding its own stretch, and the stretches are joined without re-encoding.
  */
+
 import { spawn } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { availableParallelism, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -91,19 +93,48 @@ async function openTour(page: import("playwright").Page, htmlPath: string): Prom
   if (failed) throw new Error(`the player failed: ${failed}`)
 }
 
+/**
+ * Installs the Chromium build the Playwright pr2video runs needs, with that
+ * Playwright's own installer (output goes to the terminal).
+ */
+export async function installChromium(): Promise<number> {
+  const require = createRequire(import.meta.url)
+  const cli = join(dirname(require.resolve("playwright/package.json")), "cli.js")
+  return await new Promise((done, fail) => {
+    // Without npm's variables: under `npx pr2video`, Playwright's installer
+    // would take itself for a bare `npx playwright` and only print a warning.
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.toLowerCase().startsWith("npm_")),
+    )
+    const child = spawn(process.execPath, [cli, "install", "chromium"], { stdio: "inherit", env })
+    child.on("error", fail)
+    child.on("close", (code) => done(code ?? 1))
+  })
+}
+
+/** The command that installs the Chromium build matching the Playwright pr2video runs. */
+export function chromiumInstall(): string {
+  let version = "latest"
+  try {
+    version = createRequire(import.meta.url)("playwright/package.json").version
+  } catch {
+    // keep latest
+  }
+  return `npx -y playwright@${version} install chromium`
+}
+
 async function launchChromium() {
   const playwright = await importInstalled<typeof import("playwright")>("playwright", (name) =>
     import.meta.resolve(name),
   )
+  // Playwright is a dependency of pr2video, so it is there unless the install is broken.
   if (!playwright)
-    throw new Error(
-      "rendering needs Playwright and its Chromium: npm install -g playwright && npx playwright install chromium",
-    )
+    throw new Error("Playwright is missing from this install of pr2video; reinstall it")
   try {
     return await playwright.chromium.launch({ headless: true })
   } catch (error) {
     throw new Error(
-      `cannot start Chromium (${(error as Error).message.split("\n")[0]}); run: npx playwright install chromium`,
+      `cannot start Chromium (${(error as Error).message.split("\n")[0]}); install the build this pr2video uses: pr2video browser install (or ${chromiumInstall()})`,
     )
   }
 }

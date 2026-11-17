@@ -70,16 +70,21 @@ production build. A failed sign-in leaves `recordings/<side>/.auth-<role>-stoppe
 Exactly one of: `role` (+ optional `name`), `label`, `text`, `placeholder`, `testId`, `css`. Add
 `exact: true` for an exact name or text, and `nth` to pick one of several. Prefer role and name, as
 a person would describe it; read the component's code for the accessible name. Use `css` only when
-nothing else names it.
+nothing else names it: it is Playwright's selector engine, so `:has-text("Total")` and `:has(...)`
+work as well as plain CSS.
 
 ## Focus and marks
 
 - `focus` is what the caption is about: zoomed towards in the tour. Focus the **row, card or section**
   that holds the change, with `zoom: 1.5`, so its label and context stay readable. Zoom 2 only for a
-  control whose meaning is clear on its own. No focus: the tour zooms towards the marks.
+  control whose meaning is clear on its own. No focus: the tour zooms towards the marks, and the
+  recorder scrolls the first mark into view if it is off-screen. Something lower on the page
+  that the caption is about wants a focus, so it is centred.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
+- A mark's `label` is drawn just above its outline and covers what is there (often the field's own
+  label). Give one only when it says something the screen does not, and check it on a still.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
 

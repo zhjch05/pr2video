@@ -38,8 +38,8 @@ voice and the video. No account and no API key: every voice is free and runs on 
 | For | Install |
 |---|---|
 | A natural voice | macOS `say` needs nothing; else `npm i -g kokoro-js` (90 MB model, once), Piper or eSpeak. Or no voice: captions only |
-| MP4 export | `ffmpeg` on PATH, and `npm i -g playwright && npx playwright install chromium` |
-| Still frames (`render --frame`) | Playwright and its Chromium, as above |
+| MP4 export | `ffmpeg` on PATH, and once `pr2video browser install` (the Chromium build it draws with) |
+| Still frames (`render --frame`) | that Chromium, as above |
 | MP3 narration | `ffmpeg`; without it, narration is WAV |
 | Reading GitHub pull requests | the `gh` CLI; without it the agent uses `git diff` |
 
@@ -56,7 +56,7 @@ The CLI:
 ```bash
 npm install -g pr2video
 npm install -g kokoro-js                                  # optional: the most natural free voice
-npm install -g playwright && npx playwright install chromium   # for MP4 and stills (plus ffmpeg on PATH)
+pr2video browser install                                  # once, for MP4 and stills (plus ffmpeg on PATH)
 ```
 
 Then the skill, for your agent:

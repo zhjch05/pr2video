@@ -117,4 +117,28 @@ describe.runIf(enabled)("sandbox", () => {
       await down(folder)
     }
   }, 600_000)
+
+  it("waits for a server on ::1 only, and records a start only when its port answers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-start-"))
+    await writeFile(
+      join(dir, "server.js"),
+      "require('http').createServer((q, r) => r.end('ok')).listen(4400, '::1')",
+    )
+    const box = await up({ cwd: dir, run: `test-start-${Date.now().toString(36)}` })
+    try {
+      const v6 = await start(box, "v6", "node server.js", { port: 4400, record: true })
+      expect(v6.wait?.ok).toBe(true)
+      expect(v6.recorded).toBe(true)
+      const never = await start(box, "never", "sleep 60", {
+        port: 4401,
+        record: true,
+        timeoutMs: 3_000,
+      })
+      expect(never.wait?.ok).toBe(false)
+      expect(never.recorded).toBe(false)
+      expect((await readJournal(box.repo, box.run)).map((e) => e.kind)).toEqual(["start"])
+    } finally {
+      await down(box)
+    }
+  }, 600_000)
 })

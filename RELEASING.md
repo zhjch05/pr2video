@@ -41,7 +41,7 @@ npm only lets you set up trusted publishing on a package that already exists, so
 
    ```bash
    pnpm build && (cd packages/cli && pnpm pack --pack-destination /tmp/p2v)
-   npm install -g --prefix /tmp/p2v-global /tmp/p2v/pr2video-*.tgz playwright
+   npm install -g --prefix /tmp/p2v-global /tmp/p2v/pr2video-*.tgz
    PATH=/tmp/p2v-global/bin:$PATH pr2video voices
    ```
 

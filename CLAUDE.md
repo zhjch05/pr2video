@@ -36,7 +36,8 @@ pr2video turns a pull request into a narrated tour of the running app. Read `doc
   CLI's build (`packages/cli/scripts/bundle.ts`) bundles them and zod into one `dist/cli.js` and
   copies in what they build for run time (`dist/assets/`: the player bundle and `record.mjs`; `image/`:
   the sandbox image) and the skill (`skills/`). The CLI reads those through `src/assets.ts`, never by resolving a package, so
-  the published CLI depends on nothing but its optional peers (Playwright, kokoro-js).
+  the published CLI depends only on Playwright (for MP4 and stills; `pr2video browser install` gets
+  its Chromium) and the optional peer kokoro-js.
 - Workspace packages export `pr2video-source` → `src` first (a condition of our own: bundlers
   resolve `development`), so tests, the dev CLI and the CLI's bundle use the source.
 

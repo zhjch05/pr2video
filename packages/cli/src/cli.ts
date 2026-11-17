@@ -40,7 +40,7 @@ import {
 } from "./record-commands.ts"
 import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
 import { installSkill, SKILL_HELP } from "./skill-commands.ts"
-import { renderStills, renderVideo } from "./video.ts"
+import { installChromium, renderStills, renderVideo } from "./video.ts"
 
 const HELP = `pr2video - turn a pull request into a narrated tour
 
@@ -56,6 +56,7 @@ Usage:
   pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
                                                 Single frames as PNGs, exactly as the video draws them
   pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
+  pr2video browser install                      Install the Chromium build MP4 and stills use (once)
   pr2video --version                            This CLI's version
 
 ${SKILL_HELP}
@@ -69,7 +70,7 @@ Voice options:
   --speaker <name>  The voice's own speaker (say -v name, kokoro voice id, espeak voice)
   --model <path>    Piper's .onnx voice model (or PIPER_MODEL)
 
-Rendering an MP4 needs ffmpeg and Playwright's Chromium (npx playwright install chromium).
+Rendering an MP4 or stills needs ffmpeg and Playwright's Chromium (once: pr2video browser install).
 
 Environment:
   PR2VIDEO_CACHE    Where downloaded voice models are cached (default ~/.cache/pr2video)
@@ -398,6 +399,7 @@ async function main() {
     return
   }
 
+  if (command === "browser" && rest[0] === "install") process.exit(await installChromium())
   if (command === "skill") {
     if (rest[0] === "install" && rest[1]) {
       try {

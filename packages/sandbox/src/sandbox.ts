@@ -717,13 +717,16 @@ export async function waitPort(
   const started = Date.now()
   const result = await inside(
     record.container,
+    // Both loopbacks: a dev server told to listen on "localhost" often binds only ::1.
     `for i in $(seq ${timeoutS}); do
-       code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' 'http://127.0.0.1:${port}${path}' 2>/dev/null)
-       if [ -n "$code" ] && [ "$code" != "000" ] && [ "$code" -lt 500 ]; then echo "HTTP $code on ${path}"; exit 0; fi
+       for host in 127.0.0.1 '[::1]'; do
+         code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://$host:${port}${path}" 2>/dev/null)
+         if [ -n "$code" ] && [ "$code" != "000" ] && [ "$code" -lt 500 ]; then echo "HTTP $code on ${path}"; exit 0; fi
+       done
        ${pidCheck}
        sleep 1
      done
-     echo "nothing answered on port ${port} after ${timeoutS}s"; exit 1`,
+     echo "nothing answered on port ${port} (127.0.0.1 or ::1) after ${timeoutS}s"; exit 1`,
     { timeoutMs: (timeoutS + 30) * 1_000 },
   )
   return { ok: result.code === 0, ms: Date.now() - started, status: result.stdout.trim() }
@@ -742,7 +745,7 @@ export async function start(
     record?: boolean | undefined
     timeoutMs?: number | undefined
   } = {},
-): Promise<{ pid: number; wait: WaitResult | null }> {
+): Promise<{ pid: number; wait: WaitResult | null; recorded: boolean }> {
   validName(name)
   const cwd = options.cwd ?? record.head.dir
   await stop(record, name)
@@ -754,7 +757,17 @@ export async function start(
     { env: { PR2VIDEO_CMD: command }, cwd, timeoutMs: 30_000 },
   )
   if (launched.code !== 0) throw new Error(`could not start ${name}: ${launched.stderr.trim()}`)
-  if (options.record)
+  const pid = Number.parseInt(launched.stdout.trim(), 10)
+  const wait = options.port
+    ? await waitPort(record, options.port, {
+        timeoutMs: options.timeoutMs,
+        name,
+        path: options.path,
+      })
+    : null
+  // Like `exec`, only a start that worked is a setup step: one whose port never answered is not.
+  const recorded = options.record === true && (wait === null || wait.ok)
+  if (recorded)
     await appendJournal(record.repo, record.run, {
       kind: "start",
       name,
@@ -764,15 +777,7 @@ export async function start(
       path: options.path ?? null,
       at: new Date().toISOString(),
     })
-  const pid = Number.parseInt(launched.stdout.trim(), 10)
-  const wait = options.port
-    ? await waitPort(record, options.port, {
-        timeoutMs: options.timeoutMs,
-        name,
-        path: options.path,
-      })
-    : null
-  return { pid, wait }
+  return { pid, wait, recorded }
 }
 
 /** Stops a background process and everything it started. */
