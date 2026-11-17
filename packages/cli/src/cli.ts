@@ -181,6 +181,7 @@ async function main() {
       base: { type: "string" },
       "no-base": { type: "boolean" },
       from: { type: "string" },
+      folder: { type: "boolean" },
       data: { type: "boolean" },
       port: { type: "string" },
       tail: { type: "string" },

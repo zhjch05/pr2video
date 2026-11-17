@@ -3,7 +3,7 @@
  * PR2VIDEO_TEST_DOCKER=1. Builds the image the first time (minutes).
  */
 import { execFileSync } from "node:child_process"
-import { mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -73,4 +73,48 @@ describe.runIf(enabled)("sandbox", () => {
     expect(base.stdout).toContain("Before")
     expect(base.stdout).toContain("built")
   }, 900_000)
+
+  it("copies a folder without git as it is, leaving out dependencies", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-folder-"))
+    await writeFile(join(dir, "index.html"), "<h1>Folder</h1>")
+    await mkdir(join(dir, "node_modules/left-out"), { recursive: true })
+    await writeFile(join(dir, "node_modules/left-out/index.js"), "")
+    const folder = await up({ cwd: dir, run: `test-folder-${Date.now().toString(36)}` })
+    try {
+      expect(folder.head.folder).toBe(true)
+      expect(folder.base).toBeNull()
+      const seen = await exec(folder, "cat index.html; ls; git log --oneline | wc -l")
+      expect(seen.stdout).toContain("<h1>Folder</h1>")
+      expect(seen.stdout).not.toContain("node_modules")
+      expect(seen.stdout.trim().split("\n").at(-1)?.trim()).toBe("1")
+    } finally {
+      await down(folder)
+    }
+  }, 600_000)
+
+  it("with --folder in git, takes uncommitted and untracked files, not ignored ones, and a base on request", async () => {
+    const repo = await repoWithTwoCommits()
+    await writeFile(join(repo, "index.html"), "<h1>Uncommitted</h1>")
+    await writeFile(join(repo, "new.txt"), "untracked")
+    await writeFile(join(repo, ".gitignore"), "secret.env\n")
+    await writeFile(join(repo, "secret.env"), "KEY=1")
+    const folder = await up({
+      cwd: repo,
+      folder: true,
+      base: "main",
+      run: `test-gitfolder-${Date.now().toString(36)}`,
+    })
+    try {
+      expect(folder.head.folder).toBe(true)
+      expect(folder.base?.ref).toBe("main")
+      const seen = await exec(folder, "cat index.html new.txt; ls -a")
+      expect(seen.stdout).toContain("Uncommitted")
+      expect(seen.stdout).toContain("untracked")
+      expect(seen.stdout).not.toContain("secret.env")
+      const base = await exec(folder, "cat index.html", { cwd: "/work/base" })
+      expect(base.stdout).toContain("Before")
+    } finally {
+      await down(folder)
+    }
+  }, 600_000)
 })

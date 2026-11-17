@@ -14,7 +14,13 @@ export const sandboxRecordSchema = z.object({
   container: z.string(),
   image: z.string(),
   repo: z.string(),
-  head: z.object({ ref: z.string(), sha: z.string(), dir: z.string() }),
+  head: z.object({
+    ref: z.string(),
+    sha: z.string(),
+    dir: z.string(),
+    /** A copy of the working folder (`sha` is the sandbox's own commit of it), not a commit of the repository. */
+    folder: z.boolean().optional(),
+  }),
   base: z.object({ ref: z.string(), sha: z.string(), dir: z.string() }).nullable(),
   createdAt: z.string(),
 })

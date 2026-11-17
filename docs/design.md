@@ -39,12 +39,17 @@ One container per run, standing in for a cloud sandbox:
 
 ```
 host                                           per-run container, --privileged
-pr2video CLI  ──docker exec──▶  PR checkout, node, Chromium + recorder
+pr2video CLI  ──docker exec──▶  checkout or folder copy, node, Chromium + recorder
 host registry mirror (pull cache) ◀── pulls ── dockerd (DinD): postgres, redis, ... on its host network
                                                the app on localhost (head, then base)
 ```
 
-- The pull request's code runs in a throwaway container, not as the user.
+- The project's code runs in a throwaway container, not as the user.
+- The head is a commit (`--head`, default `HEAD`) checked out from the host repository, or with
+  `--folder` (always, outside git) a copy of the project folder as it is: in git, the files git
+  would keep (tracked and untracked, not ignored); otherwise all but `node_modules`, `.git` and
+  similar caches (`FOLDER_EXCLUDES`). The copy is committed once inside. A folder has a base only
+  when `--base` names a commit, so a tour of the app with no change has no base and no "before".
 - Services run inside the container's own Docker, so recipes see `localhost` as in any sandbox.
 - The image must be native multi-arch (arm64 on Apple Silicon); runc cannot create namespaces under qemu.
 - Caches: a host-side `registry:2` pull-through mirror, a shared pnpm store volume, and the seeded

@@ -1,11 +1,13 @@
 # pr2video
 
-Turn a pull request into a narrated tour of the running app: a replay of the real UI with zoom,
-highlights, captions and a voice, as a self-contained HTML file or an MP4.
+Make a narrated video tour of your web app from its project folder: a replay of the real UI with
+zoom, highlights, captions and a voice, as a self-contained HTML file or an MP4. Tour what a pull
+request, a branch or your uncommitted work changed (with "before" scenes from the base), or just the
+app itself: a feature, a flow, an onboarding demo. No pull request and no git required.
 
 pr2video is an **agent skill plus a CLI**. It works in Claude Code (as a plugin with a `/pr2video`
 command) and in any coding agent that reads `SKILL.md` skills. Your agent, on your own tokens, does the thinking: it
-reads the change, gets the app running, picks the screens and writes what to say. The CLI does
+reads the change or the code, gets the app running, picks the screens and writes what to say. The CLI does
 everything that has to come out the same every time: the sandbox, the recording, validation, the
 voice and the video. No account and no API key: every voice is free and runs on your machine.
 
@@ -14,9 +16,42 @@ voice and the video. No account and no API key: every voice is free and runs on 
 > phone widths, a Next.js app with Postgres, a Go + React app with before/after dialogs). See
 > [docs/design.md](docs/design.md).
 
+## Requirements
+
+**Needed**
+
+- **Node.js 24 or newer** (with npm and npx).
+- **Docker, running**: Docker Desktop on macOS or Windows, Docker Engine on Linux. Every run starts
+  one container, and your project is installed, built and served inside it, never on your machine.
+  The container runs its own Docker engine (for the project's databases and services), so it must
+  be allowed to run **privileged**; rootless Docker and Podman are untested. The first run builds a
+  sandbox image of about 2.5 GB (a few minutes); later runs reuse it.
+- **A coding agent** that runs shell commands: Claude Code (plugin), or Codex, Cursor, Gemini CLI
+  and the others that read `SKILL.md` skills. It uses your own model account; pr2video makes no
+  model calls.
+- **Internet access** while setting up: the image build and your project's own dependencies.
+- **git**, only for tours of a change (a pull request, a branch, a commit range). A tour of a
+  folder as it is needs no git at all.
+
+**Optional**
+
+| For | Install |
+|---|---|
+| A natural voice | macOS `say` needs nothing; else `npm i -g kokoro-js` (90 MB model, once), Piper or eSpeak. Or no voice: captions only |
+| MP4 export | `ffmpeg` on PATH, and `npm i -g playwright && npx playwright install chromium` |
+| Still frames (`render --frame`) | Playwright and its Chromium, as above |
+| MP3 narration | `ffmpeg`; without it, narration is WAV |
+| Reading GitHub pull requests | the `gh` CLI; without it the agent uses `git diff` |
+
+**Not needed**: no pr2video account, API key or cloud service. The HTML tour is one file that opens
+in any browser; images it loads from other sites show only while the viewer is online.
+
+**Tested on** macOS with Docker Desktop. CI runs the unit tests on Linux, not yet the Docker sandbox
+or MP4 export; Linux should work (Docker runs there natively) and Windows is untested.
+
 ## Install
 
-The CLI (Node 24+, and Docker running for the sandbox):
+The CLI:
 
 ```bash
 npm install -g pr2video
@@ -33,7 +68,7 @@ Then the skill, for your agent:
 /plugin install pr2video@pr2video
 ```
 
-Then: `/pr2video https://github.com/acme/shop/pull/12`.
+Then: `/pr2video https://github.com/acme/shop/pull/12`, or `/pr2video the checkout flow`.
 
 **Other agents** (Codex, Cursor, OpenCode and the others that read `SKILL.md` skills): the
 [`skills`](https://github.com/vercel-labs/skills) installer knows where each agent looks:
@@ -49,7 +84,7 @@ pr2video skill install .agents/skills      # makes .agents/skills/pr2video/
 ```
 
 For an agent without skills, point it at `skills/pr2video/SKILL.md` and ask it to follow it. Then ask
-your agent to "make a pr2video tour of this pull request".
+your agent to "make a pr2video tour of this pull request" (or "of the settings page").
 
 The skill names the CLI version it was written for, and runs `npx -y pr2video@<that version>` when
 the installed CLI differs, so the two never disagree on commands or flags.
@@ -82,6 +117,7 @@ pr2video skill install <skills folder>        Copy the agent skill for this vers
 pr2video --version
 
 pr2video sandbox up [--head <ref>] [--base <ref>]   One container per run: head + base checked out
+pr2video sandbox up --folder [--base <ref>]          Or: the folder as it is (no git needed)
 pr2video sandbox exec [--record] -- <command>        Run inside the sandbox
 pr2video sandbox start <name> --port <n> -- <cmd>    Start a server and wait until it answers
 pr2video sandbox replay                              Re-run the recorded setup on the base commit
@@ -97,11 +133,12 @@ pr2video tour draft [--compare] [--fresh]            A tour.json from the record
 
 ## The sandbox
 
-The pull request's code never runs on your machine. Each run gets one Docker container (`--privileged`,
-needed for Docker-in-Docker) with the head at `/work/head` and the base at `/work/base`, its own
+Your project's code never runs on your machine. Each run gets one Docker container (`--privileged`,
+needed for Docker-in-Docker) with the head at `/work/head` (a commit, or with `--folder` a copy of
+the folder as it is, uncommitted files included) and the base, when there is one, at `/work/base`, its own
 Docker engine for the project's services (`docker compose` works inside), Node 24, Python and
 Chromium. A local registry mirror caches Docker Hub pulls, and pnpm/npm caches persist across runs.
-The image (about 2.5 GB) builds on first use. Requires Docker (Docker Desktop on macOS).
+The image (about 2.5 GB) builds on first use.
 
 ## Output
 

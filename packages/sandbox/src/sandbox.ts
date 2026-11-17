@@ -15,7 +15,7 @@
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
@@ -30,6 +30,7 @@ import {
   rebase,
   runDir,
   type SandboxRecord,
+  STATE_DIR,
   tail,
   writeRecord,
 } from "./state.ts"
@@ -121,14 +122,53 @@ async function gitOut(repo: string, args: Array<string>): Promise<string> {
   return stdout.trim()
 }
 
-/** The repository's root, from any directory inside it. */
+/** Whether `cwd` is inside a git repository. */
+async function inGit(cwd: string): Promise<boolean> {
+  return gitOut(cwd, ["rev-parse", "--show-toplevel"]).then(
+    () => true,
+    () => false,
+  )
+}
+
+/**
+ * The project's root, from any directory inside it: the git repository's
+ * root; outside git, the nearest folder that already holds `.pr2video/`, else
+ * `cwd` itself.
+ */
 export async function repoRoot(cwd: string): Promise<string> {
   try {
     return await gitOut(cwd, ["rev-parse", "--show-toplevel"])
   } catch {
-    throw new Error(`${cwd} is not inside a git repository`)
+    for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+      if (
+        await stat(join(dir, STATE_DIR)).then(
+          (s) => s.isDirectory(),
+          () => false,
+        )
+      )
+        return dir
+      if (dirname(dir) === dir) return resolve(cwd)
+    }
   }
 }
+
+/**
+ * Never copied from a working folder: dependencies and build caches the
+ * sandbox installs or builds itself, version control, and pr2video's own state.
+ */
+export const FOLDER_EXCLUDES = [
+  ".git",
+  STATE_DIR,
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  "target",
+]
 
 /**
  * The remote a partial clone fetches missing files from, or null when the
@@ -301,6 +341,12 @@ export type UpOptions = {
    * files are copied in, and its saved data restored, ready to replay.
    */
   from?: string | undefined
+  /**
+   * Use the project folder as it is on disk - uncommitted and untracked files
+   * included, git not needed - instead of a commit. There is no base unless
+   * `base` names a commit. Always on outside a git repository.
+   */
+  folder?: boolean | undefined
   log?: Log
 }
 
@@ -308,15 +354,43 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const ready = await dockerReady()
   if (!ready.ok) throw new Error(ready.reason)
   const repo = await repoRoot(options.cwd)
-  const headRef = options.head ?? "HEAD"
-  const headSha = await gitOut(repo, ["rev-parse", "--verify", `${headRef}^{commit}`]).catch(() => {
-    throw new Error(`no commit "${headRef}" in ${repo}`)
-  })
+  const isGit = await inGit(repo)
+  const folder = options.folder === true || !isGit
+  if (folder && options.head)
+    throw new Error("--head names a commit; --folder uses the folder as it is")
+  if (!isGit && options.base)
+    throw new Error(`--base needs a git repository, and ${repo} is not one`)
+
+  let headSha: string | null = null
+  if (!folder) {
+    const headRef = options.head ?? "HEAD"
+    headSha = await gitOut(repo, ["rev-parse", "--verify", `${headRef}^{commit}`]).catch(() => {
+      throw new Error(`no commit "${headRef}" in ${repo}`)
+    })
+    const changed = await gitOut(repo, ["status", "--porcelain"]).catch(() => "")
+    if (changed && !options.head)
+      options.log?.(
+        "note: the folder has uncommitted changes the sandbox will not see (it checks out the commit); `sandbox up --folder` takes the folder as it is",
+      )
+  }
+  // A folder has a base only when one is asked for; a commit, where it left the default branch.
   const baseRef =
-    options.base === null ? null : (options.base ?? (await defaultBase(repo, headSha, options.log)))
-  const baseSha = baseRef ? await mergeBase(repo, headSha, baseRef, options.log) : null
-  await completeObjects(repo, baseSha ? [headSha, baseSha] : [headSha], options.log)
-  const run = validRun(options.run ?? headSha.slice(0, 10))
+    options.base === null
+      ? null
+      : (options.base ??
+        (folder || !headSha ? null : await defaultBase(repo, headSha, options.log)))
+  const baseSha = baseRef
+    ? headSha
+      ? await mergeBase(repo, headSha, baseRef, options.log)
+      : await gitOut(repo, ["rev-parse", "--verify", `${baseRef}^{commit}`]).catch(() => {
+          throw new Error(`no commit "${baseRef}" in ${repo}`)
+        })
+    : null
+  const commits = [headSha, baseSha].filter((sha): sha is string => sha !== null)
+  if (commits.length) await completeObjects(repo, commits, options.log)
+  const run = validRun(
+    options.run ?? (headSha ? headSha.slice(0, 10) : `folder-${Date.now().toString(36)}`),
+  )
   const container = containerName(run)
 
   const state = await running(container)
@@ -371,36 +445,60 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   if (dockerUp.code !== 0)
     throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
 
+  // Just the commits, without history: quick for a big repository, and all a
+  // shallow or partial clone is sure to have. More history is a
+  // \`git fetch /src <ref>\` away.
+  const fetch = (shas: Array<string>) =>
+    `git fetch -q --no-tags --depth 1 --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' /src ${shas.join(" ")}`
+  const excludes = FOLDER_EXCLUDES.map((name) => `--exclude=${name}`).join(" ")
+  const script = folder
+    ? [
+        "set -eo pipefail",
+        `mkdir -p ${HEAD_DIR}`,
+        // In git, what git would keep (tracked and untracked, not ignored); otherwise all but the usual caches.
+        isGit
+          ? `git -c safe.directory='*' -C /src ls-files -z -co --exclude-standard | tar -C /src --null --ignore-failed-read --warning=no-failed-read ${excludes} -cf - -T - | tar -C ${HEAD_DIR} -xf -`
+          : `tar -C /src ${excludes} -cf - . | tar -C ${HEAD_DIR} -xf -`,
+        `cd ${HEAD_DIR}`,
+        // A commit of the snapshot, so the app's own git commands work and changes made in the sandbox show in git status.
+        "git init -q",
+        "git add -A",
+        "git -c user.name=pr2video -c user.email=pr2video@localhost commit -q --no-verify --allow-empty -m 'the working folder'",
+        baseSha ? fetch([baseSha]) : "true",
+        baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
+        "git rev-parse HEAD >&2",
+      ].join("\n")
+    : [
+        "set -e",
+        `git init -q ${HEAD_DIR}`,
+        `cd ${HEAD_DIR}`,
+        fetch(commits),
+        `git checkout -q --detach ${headSha}`,
+        baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
+      ].join("\n")
   options.log?.(
-    `checking out ${headSha.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
+    folder
+      ? `copying the folder ${repo}${baseSha ? ` and checking out base ${baseSha.slice(0, 10)}` : ""}`
+      : `checking out ${headSha?.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
   )
-  const checkout = await inside(
-    container,
-    [
-      "set -e",
-      `git init -q ${HEAD_DIR}`,
-      `cd ${HEAD_DIR}`,
-      // Just the two commits, without history: quick for a big repository,
-      // and all a shallow or partial clone is sure to have. More history is
-      // a \`git fetch /src <ref>\` away.
-      `git fetch -q --no-tags --depth 1 --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' /src ${headSha}${baseSha ? ` ${baseSha}` : ""}`,
-      `git checkout -q --detach ${headSha}`,
-      baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
-    ].join("\n"),
-    { timeoutMs: 600_000 },
-  )
+  const checkout = await inside(container, script, { timeoutMs: 600_000 })
   if (checkout.code !== 0) {
     // A sandbox with no checkout is no use, and would block the next `up`.
     await docker(["rm", "-f", "-v", container])
-    throw new Error(`checking out failed: ${checkout.stderr.trim()}`)
+    throw new Error(
+      `${folder ? "copying the folder" : "checking out"} failed: ${checkout.stderr.trim()}`,
+    )
   }
+  const snapshot = checkout.stderr.trim().split("\n").at(-1) ?? ""
 
   const record: SandboxRecord = {
     run,
     container,
     image,
     repo,
-    head: { ref: headRef, sha: headSha, dir: HEAD_DIR },
+    head: folder
+      ? { ref: "the working folder", sha: snapshot, dir: HEAD_DIR, folder: true }
+      : { ref: options.head ?? "HEAD", sha: headSha ?? "", dir: HEAD_DIR },
     base: baseRef && baseSha ? { ref: baseRef, sha: baseSha, dir: BASE_DIR } : null,
     createdAt: new Date().toISOString(),
   }
@@ -743,7 +841,9 @@ export async function replay(
   const side = options.side ?? "base"
   const base = record.base
   if (side === "base" && !base)
-    throw new Error("this sandbox has no base checkout (it was started with --no-base)")
+    throw new Error(
+      "this sandbox has no base (it was started with --no-base, or with --folder and no --base)",
+    )
   const journal = await readJournal(record.repo, record.run)
   if (!journal.length)
     throw new Error("the journal is empty: record setup steps with `--record` first")

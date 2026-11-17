@@ -6,9 +6,9 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
 
 ## Choosing scenes
 
-- One scene per place in the app where the change shows, in the order a demo would go. 1-6 scenes;
+- One scene per place in the app where the change (or the feature) shows, in the order a demo would go. 1-6 scenes;
   2-4 is typical. A refactor with no visible change gets no scenes.
-- Show the state that makes the change visible: the list with items in it, the form with an error,
+- Show the state that makes the change or feature visible: the list with items in it, the form with an error,
   the dialog open. If the app needs data first, create it in a setup step (`sandbox exec --record`).
 - Up to 10 actions and 6 checkpoints per scene. Keep the drive short: it plays before every stop.
 
@@ -18,7 +18,7 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
 {
   "version": 1,
   "title": "Dark mode switch in Settings",       // the tour's title
-  "summary": "Two sentences a reviewer reads before pressing play.",
+  "summary": "Two sentences a viewer reads before pressing play.",
   "baseUrl": "http://localhost:3000",            // where the app answers INSIDE the sandbox
   "viewport": { "width": 1280, "height": 800 },  // optional
   "timeoutMs": 15000,                            // optional: how long a step waits for its element
@@ -80,7 +80,7 @@ nothing else names it.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
-- Captions are the tour's first draft: say what the reviewer sees and why it matters, in one or two
+- Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
 
 ## Signing in

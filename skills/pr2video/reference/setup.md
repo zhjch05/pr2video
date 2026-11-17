@@ -4,7 +4,10 @@ The sandbox is a Linux container (Debian, Node 24 with corepack, Python 3, git, 
 curl) with **its own Docker engine**: `docker run` and `docker compose` work inside it, and their
 published ports are on the sandbox's `localhost`. Chromium for Playwright is installed. The head is
 checked out at `/work/head` and the base at `/work/base`, both detached and without history (a
-project that needs it, for `git describe` say, can `git fetch /src <ref>` inside). Shallow and
+project that needs it, for `git describe` say, can `git fetch /src <ref>` inside). With `up
+--folder` (or outside git), `/work/head` is instead a copy of the project folder as it was,
+uncommitted files included but not `node_modules`, `.git`, ignored files or similar caches, committed
+once inside so `git status` there shows what setup changed. Shallow and
 partial clones work: `sandbox up` fetches what they lack on the host first. The recorder's own
 Chromium lives in `/opt/pr2video`, apart from anything the project installs: a project that runs
 `playwright install` cannot break recording. pnpm and npm caches persist
@@ -17,11 +20,11 @@ After `--`, **one argument is a shell command as written**:
 you: `pr2video sandbox exec -- sh -c 'echo one; echo two'`. Commands run as root under `bash -l`,
 in `/work/head` unless you pass `--cwd`.
 
-The host repository is **not** mounted in the sandbox: `/work/head` and `/work/base` are their own
-checkouts. To bring in a file you wrote (a seed script, a fixture), copy it:
+The host's project folder is only mounted read-only at `/src`, for checking out and copying; never
+work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring in a file you wrote (a seed script, a fixture), copy it:
 `pr2video sandbox cp --record ./seed.cjs /opt/seed/seed.cjs`, then record a step that runs it.
 `--record` keeps a copy in the run and journals the copy, so replay brings the same file. Keep it out
-of the repository's working tree and under `.pr2video/<run>/` on the host.
+of the project's own files and under `.pr2video/<run>/` on the host.
 
 ## How to work
 
@@ -60,13 +63,13 @@ time, on the base:
 ## Seeding data
 
 Most changes only show with data: items in a list, a record to open. Create it through the app's
-own API or a script, as a recorded step after the server is up, so the base gets the same data.
+own API or a script, as a recorded step after the server is up, so a base gets the same data.
 Read the app's tests (e2e helpers, fixtures) for how they create users and records; they are
 usually the shortest path. First-run setup wizards (create the admin account) are often an API call.
 
 ## Saving the setup for next time
 
-A later run of the same repository (the next push, another pull request) can start from this one:
+A later run of the same project (the next push, another pull request, another tour) can start from this one:
 `pr2video sandbox up --from <run>` copies this run's journal and kept files and replays them on its
 head. When seeding or installing a toolchain is slow, save what it made once the head is set up:
 

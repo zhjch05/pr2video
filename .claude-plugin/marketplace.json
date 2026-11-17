@@ -1,6 +1,6 @@
 {
   "name": "pr2video",
-  "description": "pr2video: turn a pull request into a narrated tour of the running app.",
+  "description": "pr2video: narrated video tours of your web app, of a pull request or any feature.",
   "owner": {
     "name": "James Zhang",
     "url": "https://github.com/zhjch05"
@@ -9,7 +9,7 @@
     {
       "name": "pr2video",
       "source": "./",
-      "description": "Turn a pull request into a narrated tour of the running app, using your own agent and tokens."
+      "description": "Make a narrated video tour of the running app - of a pull request, a change or a feature - using your own agent and tokens."
     }
   ]
 }

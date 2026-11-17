@@ -15,6 +15,7 @@ import {
   replay,
   resolveRecord,
   restoredSteps,
+  type SandboxRecord,
   saveData,
   start,
   stop,
@@ -36,6 +37,7 @@ export type SandboxFlags = {
   name?: string | undefined
   path?: string | undefined
   from?: string | undefined
+  folder?: boolean | undefined
   data?: boolean | undefined
   side?: string | undefined
 }
@@ -43,6 +45,9 @@ export type SandboxFlags = {
 export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull request never runs on your machine):
   pr2video sandbox up [--head <ref>] [--base <ref> | --no-base] [--run <id>] [--from <run>]
                                                 Check out head (/work/head) and base (/work/base) in a new sandbox;
+  pr2video sandbox up --folder [--base <ref>]    Copy the project folder as it is instead (uncommitted files too,
+                                                no git needed; no base unless --base names a commit).
+                                                Outside a git repository, up always does this;
                                                 --from starts from an earlier run's setup and saved data
                                                 and replays it on the head
   pr2video sandbox exec [--cwd <dir>] [--record [--data]] [--timeout <s>] -- <command>
@@ -81,6 +86,13 @@ function describeStep(step: JournalEntry): string {
 export function shellCommand(args: ReadonlyArray<string>): string {
   if (args.length === 1) return (args[0] ?? "").trim()
   return args.map(shellQuote).join(" ")
+}
+
+/** What the head is: a commit, or a copy of the working folder. */
+function headLabel(record: SandboxRecord): string {
+  return record.head.folder
+    ? `head = the working folder as it was (${record.repo})`
+    : `head ${record.head.sha.slice(0, 10)}`
 }
 
 export function shellQuote(arg: string): string {
@@ -123,6 +135,7 @@ export async function sandboxCommand(
         head: flags.head,
         base: flags["no-base"] ? null : flags.base,
         from: flags.from,
+        folder: flags.folder,
         log: json ? undefined : say,
       })
       if (flags.from) {
@@ -144,7 +157,7 @@ export async function sandboxCommand(
       }
       answer({ ok: true, ...record })
       say(
-        `sandbox ${record.container}: head ${record.head.sha.slice(0, 10)} at ${record.head.dir}` +
+        `sandbox ${record.container}: ${headLabel(record)} at ${record.head.dir}` +
           (record.base
             ? `, base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`
             : ", no base"),
@@ -288,7 +301,7 @@ export async function sandboxCommand(
       const found = await processes(record)
       answer({ ...record, processes: found })
       say(`${record.container} (run ${record.run}), image ${record.image}`)
-      say(`head ${record.head.sha.slice(0, 10)} at ${record.head.dir}`)
+      say(`${headLabel(record)} at ${record.head.dir}`)
       if (record.base)
         say(`base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`)
       for (const p of found) say(`  ${p.name} pid ${p.pid} ${p.running ? "running" : "exited"}`)

@@ -1,19 +1,19 @@
 # Writing the tour
 
-The tour is a short screen recording, narrated, that walks a reviewer through the change. The reviewer
-has not opened the app. Each scene plays one recording up to a checkpoint, zooms in, shows the caption,
+The tour is a short screen recording, narrated, that walks a viewer through the change, or through the
+feature the user asked for. The viewer has not opened the app. Each scene plays one recording up to a checkpoint, zooms in, shows the caption,
 marks what changed, and holds while the caption is read aloud.
 
 ## Choosing scenes
 
-- Show the checkpoints that tell the story of the change, in the order a demo would: where the user
-  starts, what they do, what is different now.
-- Lead with what the pull request changed. Leave out checkpoints that add nothing.
+- Show the checkpoints that tell the story, in the order a demo would: where the user starts, what
+  they do, and what is different now (or, for a tour of the app, what they get).
+- Lead with what the change did, or with what the user asked to see. Leave out checkpoints that add nothing.
 - At most 12 scenes; 4 to 8 is typical.
 
 ## Captions
 
-- One or two plain sentences, spoken to the reviewer: what they are looking at and why it matters.
+- One or two plain sentences, spoken to the viewer: what they are looking at and why it matters.
   "The notice is now a blue callout, and the dismiss button moved to its right."
 - Present tense. No marketing words. Under 280 characters.
 - Quote on-screen text in "double quotes", and only text that is on that checkpoint, exactly.
@@ -26,7 +26,8 @@ marks what changed, and holds while the caption is read aloud.
   dialog as focus, framed but not magnified). The focus must fit magnified with a margin: `tour
   check` warns when it will not.
 - `markers`: up to four, the exact things the caption names, each with a `tone`: `added`, `removed`,
-  `changed` for what the pull request did, `note` for anything else worth pointing at. Give a short
+  `changed` for what a change did, `note` for anything else worth pointing at (every mark, in a tour
+  of the app with no change). Give a short
   `label` when there are two or more; otherwise `null`.
 - Boxes are viewport pixels at the checkpoint. Give the recorder's `node` id when you have it: the
   player then measures that node in the replay.
@@ -37,7 +38,7 @@ marks what changed, and holds while the caption is read aloud.
 {
   "version": 1,
   "title": "Cart groups items by supplier",       // a few words
-  "summary": "Two sentences a reviewer reads before pressing play.",
+  "summary": "Two sentences a viewer reads before pressing play.",
   "scenes": [
     {
       "id": "s1-cart",
