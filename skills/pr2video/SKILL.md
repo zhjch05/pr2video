@@ -48,6 +48,10 @@ after the head commit, its first 10 characters, or `folder-...` for a folder). E
    pr2video sandbox up --folder --base HEAD          # uncommitted work, with the last commit as its base
    ```
 
+   The app may need values nobody can make up (a real API key): reference/setup.md says how to tell
+   those blockers from what you can generate or fake, and how to ask the user for them. Never ask
+   for a secret in the chat: the user sets it with `pr2video sandbox env set <NAME>`.
+
    Outside a git repository `sandbox up` always copies the folder. A copied folder leaves out
    `node_modules`, `.git` and similar caches (and, in git, ignored files such as `.env`): install
    and build inside, as for a commit. Then:
@@ -154,3 +158,4 @@ after the head commit, its first 10 characters, or `folder-...` for a folder). E
   user's machine, unless the user tells you to.
 - Never invent what is on screen: captions describe only what a checkpoint recorded.
 - Say when a scene could not be reached instead of filming the wrong page.
+- Never read, print or film a secret's value; commands name it (`$NAME`).

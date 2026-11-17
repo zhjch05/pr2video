@@ -1,3 +1,4 @@
 export * from "./docker.ts"
 export * from "./sandbox.ts"
+export * from "./secrets.ts"
 export * from "./state.ts"

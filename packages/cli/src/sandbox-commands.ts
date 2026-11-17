@@ -28,6 +28,8 @@ import {
   waitPort,
 } from "@pr2video/sandbox"
 
+import { ENV_HELP, envCommand } from "./env-commands.ts"
+
 export type SandboxFlags = {
   json?: boolean | undefined
   run?: string | undefined
@@ -78,7 +80,9 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
-  pr2video sandbox status | ls [--all] | down`
+  pr2video sandbox status | ls [--all] | down
+
+${ENV_HELP}`
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
@@ -152,6 +156,8 @@ export async function sandboxCommand(
   const cwd = process.cwd()
 
   switch (sub) {
+    case "env":
+      return envCommand(rest, flags)
     case "up": {
       const record = await up({
         cwd,

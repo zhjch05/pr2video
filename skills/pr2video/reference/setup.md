@@ -158,9 +158,46 @@ The app can reach the internet from the sandbox (it needs it to install packages
 favicons, fonts or previews from other sites while you record. Prefer settings that turn such
 fetches off, and never give it real accounts or keys.
 
-Never invent real credentials. Use the project's example values (CI workflows often hold a full set
-of fakes), a local double (a Postgres in Docker instead of a hosted one), or a stub. If the app
-cannot start without an outside service you cannot stand in for, stop and say which one.
+Never invent real credentials. Sort every variable the app reads (`.env.example`, the config
+module, CI workflows) into one of three kinds, and settle each before recording:
+
+| Kind | Examples | What to do |
+|---|---|---|
+| **Made up**: any value of the right shape works | a session or JWT secret, an encryption key, a webhook signing secret you also sign with | Generate it in the recorded step that writes the env (`openssl rand -hex 32`) |
+| **Faked**: a stand-in does the job | a database URL, a hosted Postgres or Redis, SMTP, a vendor API the tour only needs answers from | A local double (Postgres in Docker, MailHog) or a stub (below); CI workflows often hold a full set of fakes |
+| **Blocker**: only a real value lets the screen show what changed | a payments key whose test-mode objects the page lists, an OAuth app the sign-in redirects to, an AI provider the feature calls | Ask the user (below) |
+
+Most variables are made up or faked. A screen that only needs *some* answer from a service is a
+stub, not a blocker; it is a blocker only when the change is in what the real service does.
+
+### Asking for a blocker
+
+Ask once, for all the blockers together, before recording. Name each variable, what it unlocks
+(which scenes), and give three choices:
+
+- **Provide it**: the user runs, in their own terminal (never by pasting the value into the chat):
+  `pr2video sandbox env set STRIPE_SECRET_KEY` (it asks for the value without showing it), or
+  points you at a file they already have: `pr2video sandbox env import ~/app/.env STRIPE_SECRET_KEY`.
+  Ask for a test-mode or sandbox key, never a live one.
+- **Skip it**: leave out the scenes that need it; the tour says which and why.
+- **Stub it**: film the app against a stand-in; the tour says the service's side is not real.
+
+Without an answer (no user to ask), stub where you can, skip the rest, and say so.
+
+### Using secrets
+
+`pr2video sandbox env ls` lists the names set for this project (never the values); they are kept
+in `.pr2video/secrets.env` for every run of the project. Every `exec` and `start` gets them as
+environment variables, so recorded steps name them and never hold them:
+
+```bash
+pr2video sandbox exec --record -- 'echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY" >> .env.local'
+```
+
+Output and logs show `***` in place of a value. A command, or a `cp --record` file, that holds a
+value is refused: write `$NAME` instead. Never print a value (`cat .env`, `env`), and do not film
+a screen that shows one. The tour's summary names the secrets the user provided (names only) and
+the scenes skipped for a missing one.
 
 ### Standing in for an outside service
 
