@@ -28,6 +28,7 @@ import { Replayer } from "rrweb"
 
 import type { PlayerData } from "../data.ts"
 import { captionSide, easeTransform, type FrameState, frameAt, labelSpot } from "../frame.ts"
+import { type IconName, icon } from "./icons.ts"
 import { letAnimationsFinish, loaded, painted, pinRemovals, rescroll } from "./replay.ts"
 
 type Events = Array<{ timestamp: number; type?: number; data?: never }>
@@ -55,9 +56,27 @@ async function gunzipBase64(base64: string): Promise<string> {
   return new Response(stream).text()
 }
 
+/** `m:ss.t`, as better-review's player shows it. */
 function formatTime(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1_000))
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
+  const total = Math.max(0, ms)
+  const minutes = Math.floor(total / 60_000)
+  const seconds = Math.floor((total % 60_000) / 1_000)
+  const tenths = Math.floor((total % 1_000) / 100)
+  return `${minutes}:${String(seconds).padStart(2, "0")}.${tenths}`
+}
+
+/** A square icon button, labelled for screen readers and with a tooltip. */
+function iconButton(parent: HTMLElement, name: IconName, label: string, title: string) {
+  const button = el("button", "p2v-icon", parent)
+  button.type = "button"
+  setIcon(button, name, label, title)
+  return button
+}
+
+function setIcon(button: HTMLButtonElement, name: IconName, label: string, title: string) {
+  button.innerHTML = icon(name)
+  button.setAttribute("aria-label", label)
+  button.title = title
 }
 
 /**
@@ -100,6 +119,7 @@ export class TourPlayer {
     time: HTMLElement
     bar: HTMLElement
     fill: HTMLElement
+    handle: HTMLElement
     mute: HTMLButtonElement | null
     captions: HTMLButtonElement
     speeds: Array<HTMLButtonElement>
@@ -127,6 +147,8 @@ export class TourPlayer {
   private captionsOn = true
   private lastIndex = -1
 
+  private readonly box: HTMLElement
+  private theater = false
   private readonly data: PlayerData
   private readonly mode: Mode
 
@@ -141,7 +163,9 @@ export class TourPlayer {
       el("h1", "p2v-title", head).textContent = data.tour.title
       if (data.tour.summary) el("p", "p2v-summary", head).textContent = data.tour.summary
     }
-    const frame = el("div", "p2v-frame", this.root)
+    // The frame and its controls, one bordered box: theater and full screen take both.
+    this.box = el("div", "p2v-box", this.root)
+    const frame = el("div", "p2v-frame", this.box)
     this.stage = el("div", "p2v-stage", frame)
     this.zoomLayer = el("div", "p2v-zoom", this.stage)
     this.host = el("div", "p2v-host", this.zoomLayer)
@@ -669,10 +693,13 @@ export class TourPlayer {
       this.driven = { ...this.driven, mode: null }
       for (const element of this.audio.values()) element.pause()
     }
-    if (this.controls) {
-      this.controls.play.textContent = playing ? "Pause" : "Play"
-      this.controls.play.setAttribute("aria-label", playing ? "Pause the tour" : "Play the tour")
-    }
+    if (this.controls)
+      setIcon(
+        this.controls.play,
+        playing ? "pause" : "play",
+        playing ? "Pause the tour" : "Play the tour",
+        playing ? "Pause (Space)" : "Play (Space)",
+      )
   }
 
   private jump(ms: number) {
@@ -681,48 +708,65 @@ export class TourPlayer {
   }
 
   private buildControls() {
-    const bar = el("div", "p2v-controls", this.root)
-    const play = el("button", "p2v-button", bar)
-    play.type = "button"
-    play.textContent = "Play"
-    play.addEventListener("click", () => {
-      if (this.clock >= this.timeline.totalMs) this.jump(0)
+    const bar = el("div", "p2v-controls", this.box)
+    const toggle = () => {
+      if (!this.playing && this.clock >= this.timeline.totalMs) this.jump(0)
       this.setPlaying(!this.playing)
-    })
-    const restart = el("button", "p2v-button", bar)
-    restart.type = "button"
-    restart.textContent = "Restart"
+    }
+    const play = iconButton(bar, "play", "Play the tour", "Play (Space)")
+    play.addEventListener("click", toggle)
+    const restart = iconButton(
+      bar,
+      "restart",
+      "Replay the tour from the start",
+      "Replay from the start",
+    )
     restart.addEventListener("click", () => {
       this.jump(0)
       this.setPlaying(true)
     })
-    const time = el("span", "p2v-time", bar)
+
+    const total = this.timeline.totalMs
     const track = el("div", "p2v-track", bar)
     track.setAttribute("role", "slider")
     track.setAttribute("aria-label", "Seek the tour")
+    track.setAttribute("aria-valuemin", "0")
+    track.setAttribute("aria-valuemax", String(Math.round(total)))
     track.tabIndex = 0
+    el("div", "p2v-rail", track)
     const fill = el("div", "p2v-fill", track)
     for (const entry of this.timeline.scenes.slice(1)) {
-      const tick = el("div", "p2v-tick", track)
-      tick.style.left = `${(entry.offsetMs / this.timeline.totalMs) * 100}%`
+      const tick = el("span", "p2v-tick", track)
+      tick.style.left = `${(entry.offsetMs / total) * 100}%`
     }
+    const handle = el("div", "p2v-handle", track)
     const seekTo = (event: PointerEvent) => {
       const rect = track.getBoundingClientRect()
-      this.jump(((event.clientX - rect.left) / rect.width) * this.timeline.totalMs)
+      if (rect.width) this.jump(((event.clientX - rect.left) / rect.width) * total)
     }
     track.addEventListener("pointerdown", (event) => {
       track.setPointerCapture(event.pointerId)
       seekTo(event)
-      const move = (e: PointerEvent) => seekTo(e)
-      track.addEventListener("pointermove", move)
-      track.addEventListener("pointerup", () => track.removeEventListener("pointermove", move), {
-        once: true,
-      })
+    })
+    track.addEventListener("pointermove", (event) => {
+      if (track.hasPointerCapture(event.pointerId)) seekTo(event)
+    })
+    track.addEventListener("pointerup", (event) => {
+      if (track.hasPointerCapture(event.pointerId)) track.releasePointerCapture(event.pointerId)
     })
     track.addEventListener("keydown", (event) => {
-      if (event.key === "ArrowRight") this.jump(this.clock + 5_000)
-      if (event.key === "ArrowLeft") this.jump(this.clock - 5_000)
+      const step = event.shiftKey ? 1_000 : 5_000
+      if (event.key === "ArrowRight") this.jump(this.clock + step)
+      else if (event.key === "ArrowLeft") this.jump(this.clock - step)
+      else if (event.key === "Home") this.jump(0)
+      else if (event.key === "End") this.jump(total)
+      else if (event.key === " " || event.key === "Enter") toggle()
+      else return
+      event.preventDefault()
+      event.stopPropagation()
     })
+    const time = el("span", "p2v-time", bar)
+
     const speedGroup = el("div", "p2v-speeds", bar)
     const speeds = [1, 1.5, 2].map((option) => {
       const button = el("button", "p2v-speed", speedGroup)
@@ -736,25 +780,80 @@ export class TourPlayer {
       button.setAttribute("aria-pressed", String(option === 1))
       return button
     })
+
     let mute: HTMLButtonElement | null = null
     if (this.audio.size) {
-      mute = el("button", "p2v-button", bar)
-      mute.type = "button"
-      mute.textContent = "Mute"
-      mute.addEventListener("click", () => {
+      const button = iconButton(bar, "volume", "Mute the narration", "Narration on")
+      button.setAttribute("aria-pressed", "true")
+      button.addEventListener("click", () => {
         this.muted = !this.muted
-        if (mute) mute.textContent = this.muted ? "Unmute" : "Mute"
+        button.setAttribute("aria-pressed", String(!this.muted))
+        setIcon(
+          button,
+          this.muted ? "muted" : "volume",
+          this.muted ? "Turn the narration on" : "Mute the narration",
+          this.muted ? "Narration off" : "Narration on",
+        )
       })
+      mute = button
     }
-    const captions = el("button", "p2v-button", bar)
-    captions.type = "button"
-    captions.textContent = "Captions"
+    const captions = iconButton(bar, "captions", "Hide captions", "Captions on")
     captions.setAttribute("aria-pressed", "true")
     captions.addEventListener("click", () => {
       this.captionsOn = !this.captionsOn
       captions.setAttribute("aria-pressed", String(this.captionsOn))
+      setIcon(
+        captions,
+        this.captionsOn ? "captions" : "captionsOff",
+        this.captionsOn ? "Hide captions" : "Show captions",
+        this.captionsOn ? "Captions on" : "Captions off",
+      )
     })
+
+    // Theater: the player over the page, which neither scrolls nor shows through.
+    const backdrop = el("div", "p2v-backdrop", this.root)
+    backdrop.hidden = true
+    const theater = iconButton(bar, "theater", "Theater view", "Theater view")
+    theater.setAttribute("aria-pressed", "false")
+    const setTheater = (on: boolean) => {
+      this.theater = on
+      backdrop.hidden = !on
+      this.box.classList.toggle("p2v-theater", on)
+      document.body.style.overflow = on ? "hidden" : ""
+      theater.setAttribute("aria-pressed", String(on))
+      setIcon(
+        theater,
+        "theater",
+        on ? "Leave theater view" : "Theater view",
+        on ? "Leave theater view (Esc)" : "Theater view",
+      )
+    }
+    theater.addEventListener("click", () => setTheater(!this.theater))
+    backdrop.addEventListener("click", () => setTheater(false))
+
+    // Full screen is the browser's: follow it, however it is left (Esc included).
+    if (document.fullscreenEnabled) {
+      const full = iconButton(bar, "maximize", "Full screen", "Full screen")
+      full.addEventListener("click", () => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+        else void this.box.requestFullscreen().catch(() => undefined)
+      })
+      document.addEventListener("fullscreenchange", () => {
+        const on = document.fullscreenElement === this.box
+        this.box.classList.toggle("p2v-fullscreen", on)
+        theater.hidden = on
+        full.setAttribute("aria-pressed", String(on))
+        setIcon(
+          full,
+          on ? "minimize" : "maximize",
+          on ? "Leave full screen" : "Full screen",
+          on ? "Leave full screen (Esc)" : "Full screen",
+        )
+      })
+    }
+
     const list = el("ol", "p2v-scenes", this.root)
+    list.setAttribute("aria-label", "Scenes")
     const items = this.timeline.scenes.map((entry) => {
       const item = el("li", "p2v-scene", list)
       const button = el("button", "", item)
@@ -769,19 +868,26 @@ export class TourPlayer {
       return item
     })
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.theater && !document.fullscreenElement) {
+        setTheater(false)
+        return
+      }
       if (event.key !== " " || (event.target as HTMLElement | null)?.tagName === "BUTTON") return
       event.preventDefault()
-      this.setPlaying(!this.playing)
+      toggle()
     })
-    this.controls = { play, time, bar: track, fill, mute, captions, speeds, list: items }
+    this.controls = { play, time, bar: track, fill, handle, mute, captions, speeds, list: items }
   }
 
   private updateControls(index: number) {
     if (!this.controls) return
-    const { time, fill, bar, list } = this.controls
+    const { time, fill, handle, bar, list } = this.controls
     time.textContent = `${formatTime(this.clock)} / ${formatTime(this.timeline.totalMs)}`
-    fill.style.width = `${(this.clock / this.timeline.totalMs) * 100}%`
+    const percent = `${(Math.min(this.clock, this.timeline.totalMs) / this.timeline.totalMs) * 100}%`
+    fill.style.width = percent
+    handle.style.left = percent
     bar.setAttribute("aria-valuenow", String(Math.round(this.clock)))
+    bar.setAttribute("aria-valuetext", formatTime(this.clock))
     for (const [i, item] of list.entries()) {
       const isCurrent = i === index
       if ((item.getAttribute("aria-current") === "true") !== isCurrent)
