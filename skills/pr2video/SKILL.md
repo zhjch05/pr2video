@@ -19,7 +19,8 @@ commands and flags match what is written here. A shell function is the easy way,
 `pr2video() { npx -y pr2video@0.0.5 "$@"; }` (a variable holding the command does not split into
 words in zsh). Pass `--json` when you need to act on the output.
 
-Work in `.pr2video/<run>/` in the user's project folder. Every file you write there is checked by a
+Work in `.pr2video/<run>/` in the user's project folder: `sandbox up` prints it (the run is named
+after the head commit, its first 10 characters, or `folder-...` for a folder). Every file you write there is checked by a
 `pr2video ... check` command: **loop until the check passes**, and never hand-edit what the CLI wrote.
 
 ## Phases
@@ -57,7 +58,8 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    ```
 
    Record only the steps that set the app up, so `pr2video sandbox replay` can rebuild the base
-   from them. Explore without `--record`.
+   from them. Explore without `--record`. A replay runs every recorded step again, build included,
+   so it takes about as long as the setup did.
 
    If `.pr2video/` already holds a run of this project with recorded setup (`ls .pr2video`, then
    `pr2video sandbox journal --run <run>`), start from it instead: add `--from <run>` to the `up`
@@ -66,8 +68,13 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
 3. **Write the scenes** (`.pr2video/<run>/scenes.json`): 1-6 places in the app that show the change
    (or the feature),
    each with a start URL, a few steps to get there and checkpoints to stop on, with captions. See
-   [reference/scenes.md](reference/scenes.md). Find button names, labels and routes in the code;
-   check a page with `pr2video sandbox exec -- curl -s http://localhost:<port>/<path>` if unsure.
+   [reference/scenes.md](reference/scenes.md). Find button names, labels and routes in the code,
+   then check them on the live page before recording:
+
+   ```bash
+   pr2video probe /settings --role admin                                   # headings, controls, fields
+   pr2video probe /settings --role admin --find '{"role":"switch","name":"Dark mode"}'   # what a locator matches
+   ```
 
    ```bash
    pr2video scenes check
@@ -78,8 +85,9 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    layout) needs a phone viewport. Give one scene its own `viewport` to show the same screen at
    several widths. Look at each checkpoint's screenshot (`recordings/head/<scene>/<checkpoint>.png`).
    A scene that stopped says where and why in `result.json` (with `stopped.png`): fix the step and
-   record it again with `--only <scene>` (or `--only a,b`); other scenes' recordings are kept. With
-   a base, record it too:
+   record it again with `--only <scene>` (or `--only a,b`); other scenes' recordings are kept. Get the head
+   right before recording the base: re-recording a head scene afterwards needs `replay --side head`,
+   which runs the whole setup again. With a base, record it too:
 
    ```bash
    pr2video sandbox replay              # the recorded setup, on the base commit
@@ -95,9 +103,10 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    ```bash
    pr2video tour draft                  # .pr2video/<run>/tour.json
    pr2video tour draft --compare        # with a base: each checkpoint the base reached, shown first as "before"
+   pr2video tour draft --before home-banner,settings   # only these: <scene>-<checkpoint>, a scene id or a checkpoint id
    pr2video tour draft --before a,b     # or a "before" only for the checkpoints that need one
    pr2video tour check .pr2video/<run>/tour.json
-   pr2video render .pr2video/<run>/tour.json --frame 4000,12000   # stills, exactly as the video draws them
+   pr2video render .pr2video/<run>/tour.json --frame 4000,12000 --png .pr2video/<run>/stills/s   # stills, as the video draws them
    ```
 
    With `--compare`, a checkpoint whose base screenshot looks the same as the head's gets no
@@ -118,7 +127,9 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    pr2video tour timeline .pr2video/<run>/tour.json --vtt .pr2video/<run>/captions.vtt
    ```
 
-   Narration reuses a clip whose caption did not change, so edit captions and narrate again freely.
+   Narration takes about 10 seconds a clip with kokoro, and reuses a clip whose caption did not
+   change, so edit captions and narrate again freely. The voice reads every character of a code,
+   colour or id (`#767676`, `rgb(170, 170, 170)`): name such values sparingly in captions.
    When `narrate` prints a `note` about the voice's licence (macOS `say`: personal, non-commercial
    use only; Piper: per model), pass it on to the user with the files, and offer kokoro if the tour
    will be shared.

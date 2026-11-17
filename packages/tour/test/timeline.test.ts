@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { type TourScene, tourProblems } from "../src/schema.ts"
+import { fitZoom, type TourScene, tourProblems } from "../src/schema.ts"
 import {
   APPROACH_MAX_MS,
   FOCUS_MS,
@@ -169,5 +169,19 @@ describe("tourProblems", () => {
     const problems = tourProblems({ version: 1, title: "T", summary: "", scenes })
     expect(problems.map((p) => p.path)).toEqual(["scenes"])
     expect(problems[0]?.message).toContain("13 scenes, at most 12")
+  })
+})
+
+describe("fitZoom", () => {
+  const view = { width: 1280, height: 800 }
+  it("gives what was asked when the focus fits", () => {
+    expect(fitZoom({ width: 400, height: 200 }, view, 1.5)).toBe(1.5)
+  })
+  it("zooms as far as fits when the asked zoom would overflow", () => {
+    // 748 * 1.5 = 1122 is wider than 86% of 1280: 1.47 still fits.
+    expect(fitZoom({ width: 748, height: 389 }, view, 1.5)).toBe(1.47)
+  })
+  it("stays at 1 when the focus could barely be magnified", () => {
+    expect(fitZoom({ width: 1000, height: 300 }, view, 1.5)).toBe(1)
   })
 })

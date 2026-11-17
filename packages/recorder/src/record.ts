@@ -8,6 +8,11 @@
  * kept, and the result says where and why.
  *
  *   node record.mjs --scenes scenes.json --side head --out <dir> [--only <id,id>] [--rrweb <umd>]
+ *   node record.mjs --scenes scenes.json --out <dir> --probe <url> [--role r] [--find <json>]...
+ *
+ * `--probe` records nothing: it opens one page (signed in as the role) and
+ * writes `probe.json` (what each `--find` locator matches, or an outline of the
+ * page's headings, controls and fields) and `probe.png`.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
@@ -22,6 +27,7 @@ import {
   type Checkpoint,
   isCheckpoint,
   type Locator as LocatorSpec,
+  locatorSchema,
   type Scene,
   type ScenesFile,
   scenesFileSchema,
@@ -40,6 +46,9 @@ const { values } = parseArgs({
     out: { type: "string" },
     only: { type: "string" },
     rrweb: { type: "string" },
+    probe: { type: "string" },
+    role: { type: "string" },
+    find: { type: "string", multiple: true },
   },
 })
 if (!values.scenes || !values.out) throw new Error("usage: record --scenes <file> --out <dir>")
@@ -104,6 +113,37 @@ function describe(spec: LocatorSpec): string {
     ([k]) => !["exact", "nth", "name"].includes(k),
   ) ?? ["?", "?"]
   return `${key}=${JSON.stringify(value)}${spec.name ? ` name=${JSON.stringify(spec.name)}` : ""}${spec.nth !== undefined ? ` nth=${spec.nth}` : ""}`
+}
+
+/** One step as a reader would name it: `fill label="Email"`, `goto /settings`. */
+function describeAction(action: Action): string {
+  const [verb, target] = Object.entries(action)[0] ?? ["step", ""]
+  if (target && typeof target === "object") return `${verb} ${describe(target as LocatorSpec)}`
+  return `${verb} ${target}`
+}
+
+/**
+ * Why a step failed, in the scene's terms: Playwright names its own call
+ * (a `fill` waits through `locator.click`), so a time-out says which element
+ * was never found instead.
+ */
+function stepFailure(action: Action, cause: Error): string {
+  const first = cause.message.split("\n")[0] ?? "failed"
+  const target = Object.values(action)[0]
+  const timedOut = cause.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(first)
+  if (timedOut && target && typeof target === "object") {
+    const ms = /Timeout (\d+)ms/.exec(first)?.[1]
+    const within = ms ? ` in ${Number(ms) / 1000}s` : ""
+    // Playwright's call log says when something else took the click: a
+    // dialog, a cookie banner, an overlay still fading out.
+    const cover = /<([^>]{1,120})>[^\n]*intercepts pointer events/.exec(cause.message)?.[1]
+    if (cover)
+      return `${describeAction(action)}: covered by <${cover}>${within} (a dialog or overlay is in the way: close it in a step, or in the role's sign-in steps)`
+    if (/element is not visible/.test(cause.message))
+      return `${describeAction(action)}: found but never visible${within}`
+    return `${describeAction(action)}: not found on the page${within}`
+  }
+  return `${describeAction(action)}: ${first}`
 }
 
 function locate(page: Page, spec: LocatorSpec): Locator {
@@ -389,7 +429,9 @@ async function recordScene(
           .catch(() => null)
         error = {
           step: i,
-          message: (cause as Error).message.split("\n")[0] ?? "failed",
+          message: isCheckpoint(step)
+            ? ((cause as Error).message.split("\n")[0] ?? "failed")
+            : stepFailure(step, cause as Error),
           url: page.url(),
           screenshot: saved,
         }
@@ -463,10 +505,16 @@ async function checkpoint(
       focus = await measure(target)
     } catch {
       // On the head the focus must be there: the scene missed its page.
-      if (side === "head")
+      if (side === "head") {
+        const count = await locateAll(page, step.focus)
+          .count()
+          .catch(() => 0)
         throw new Error(
-          `checkpoint ${step.checkpoint}: focus ${describe(step.focus)} is not on the page`,
+          count
+            ? `checkpoint ${step.checkpoint}: focus ${describe(step.focus)} matches ${count} element(s) but none is visible (a hidden copy, a collapsed panel?): check it with \`pr2video probe\``
+            : `checkpoint ${step.checkpoint}: focus ${describe(step.focus)} matches nothing on ${page.url()}`,
         )
+      }
       missing.push(describe(step.focus))
     }
   }
@@ -644,6 +692,133 @@ async function warmUp(browser: Browser, scenes: ReadonlyArray<Scene>, auth: Map<
     await context.close()
     log(`warmed ${scene.url} in ${((Date.now() - started) / 1000).toFixed(1)}s`)
   }
+}
+
+/** One element a probe found: where it is and what it says. */
+type ProbeMatch = {
+  visible: boolean
+  box: { x: number; y: number; width: number; height: number } | null
+  tag: string
+  text: string
+}
+
+/**
+ * The page's headings, controls and fields as a person sees them, each with
+ * the role and name a locator would use. Self-contained: it runs in the page.
+ */
+function pageOutline(): Array<{ role: string; name: string; testId: string | null }> {
+  const items: Array<{ role: string; name: string; testId: string | null }> = []
+  const clean = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim().slice(0, 60)
+  const implicit: Record<string, string> = {
+    a: "link",
+    button: "button",
+    select: "combobox",
+    textarea: "textbox",
+    h1: "heading",
+    h2: "heading",
+    h3: "heading",
+  }
+  const selector =
+    "h1,h2,h3,button,a[href],input:not([type=hidden]),select,textarea,[role=button],[role=tab],[role=link],[role=checkbox],[role=switch],[role=menuitem],[role=combobox],[data-testid]"
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+    const rect = el.getBoundingClientRect()
+    if (!rect.width || !rect.height || getComputedStyle(el).visibility === "hidden") continue
+    const tag = el.tagName.toLowerCase()
+    const input = el as HTMLInputElement
+    const role =
+      el.getAttribute("role") ??
+      implicit[tag] ??
+      (tag === "input"
+        ? ["checkbox", "radio"].includes(input.type)
+          ? input.type
+          : "textbox"
+        : tag)
+    const label = input.labels?.[0]?.innerText
+    const name = clean(
+      el.getAttribute("aria-label") ||
+        label ||
+        el.innerText ||
+        el.getAttribute("placeholder") ||
+        el.getAttribute("title") ||
+        input.value,
+    )
+    items.push({ role, name, testId: el.getAttribute("data-testid") })
+    if (items.length >= 100) break
+  }
+  return items
+}
+
+/** `--probe`: one page, what the locators match, nothing recorded. */
+async function probe(url: string, role: string | undefined, finds: ReadonlyArray<string>) {
+  const browser = await chromium.launch()
+  try {
+    await mkdir(out, { recursive: true })
+    const storageState = role ? await signIn(browser, role) : undefined
+    const context = await browser.newContext({
+      viewport: file.viewport,
+      ...(storageState ? { storageState } : {}),
+    })
+    const page = await context.newPage()
+    const response = await page.goto(absolute(url), {
+      waitUntil: "load",
+      timeout: WARMUP_TIMEOUT_MS,
+    })
+    await settle(page)
+    const found: Array<{
+      locator: string
+      count?: number
+      matches?: Array<ProbeMatch>
+      error?: string
+    }> = []
+    for (const raw of finds) {
+      let spec: LocatorSpec
+      try {
+        const parsed = locatorSchema.safeParse(JSON.parse(raw))
+        if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "not a locator")
+        spec = parsed.data
+      } catch (error) {
+        found.push({ locator: raw, error: (error as Error).message })
+        continue
+      }
+      const all = locateAll(page, spec)
+      const count = await all.count()
+      const matches: Array<ProbeMatch> = []
+      for (let i = 0; i < Math.min(count, 5); i++) {
+        const el = all.nth(i)
+        const box = await el.boundingBox()
+        matches.push({
+          visible: await el.isVisible(),
+          box: box && {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          },
+          tag: await el.evaluate((node) => node.tagName.toLowerCase()),
+          text: (await el.innerText().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 80),
+        })
+      }
+      found.push({ locator: describe(spec), count, matches })
+    }
+    await page.screenshot({ path: join(out, "probe.png") })
+    const report = {
+      url: page.url(),
+      status: response?.status() ?? null,
+      title: await page.title(),
+      viewport: file.viewport,
+      finds: found,
+      outline: finds.length ? [] : await page.evaluate(pageOutline),
+    }
+    await writeFile(join(out, "probe.json"), `${JSON.stringify(report, null, 2)}\n`)
+    await context.close()
+  } finally {
+    await browser.close()
+  }
+}
+
+if (values.probe) {
+  await probe(values.probe, values.role, values.find ?? [])
+  process.exit(0)
 }
 
 const browser = await chromium.launch()

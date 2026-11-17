@@ -5,7 +5,13 @@
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 
-import { draftTour, type SceneResult, scenesFileSchema, scenesProblems } from "@pr2video/recorder"
+import {
+  draftTour,
+  type SceneResult,
+  type ScenesFile,
+  scenesFileSchema,
+  scenesProblems,
+} from "@pr2video/recorder"
 import { docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
 import type { Tour, TourScene } from "@pr2video/tour"
 
@@ -21,6 +27,8 @@ export type RecordFlags = {
   compare?: boolean | undefined
   before?: string | undefined
   fresh?: boolean | undefined
+  role?: string | undefined
+  find?: Array<string> | undefined
 }
 
 /** `pr2video scenes --help`: what a scene's steps can be. */
@@ -57,7 +65,13 @@ export const RECORD_HELP = `Recording:
                                                 checkpoint names, or <scene>-<checkpoint>).
                                                 Drafting over an existing tour keeps its scenes, order,
                                                 titles, labels, captions and zooms, and takes recordings,
-                                                timings, focus and marks fresh; --fresh starts over`
+                                                timings, focus and marks fresh; --fresh starts over
+  pr2video probe <url> [--role <role>] [--find '<locator json>']...
+                                                Open one page in the sandbox's browser (signed in as a
+                                                role from scenes.json) without recording: with --find,
+                                                what each locator matches (count, box, text); without,
+                                                the page's headings, controls and fields with their
+                                                roles and names. Writes probe.png beside it`
 
 async function readJson(path: string): Promise<unknown> {
   try {
@@ -96,6 +110,125 @@ export async function scenesCheck(
 
 const INSIDE = "/opt/pr2video"
 const INSIDE_OUT = "/tmp/pr2video-out"
+
+/**
+ * `pr2video probe`: what a locator matches on the live page, before a scene
+ * depends on it. curl sees a single-page app's empty shell; this sees what the
+ * recorder will see, signed in the same way.
+ */
+export async function probeCommand(
+  args: ReadonlyArray<string>,
+  flags: RecordFlags,
+): Promise<number> {
+  const [url] = args
+  if (!url)
+    throw new Error("usage: pr2video probe <url> [--role <role>] [--find '<locator json>']...")
+  const record = await resolveRecord(process.cwd(), flags.run)
+  const dir = runDir(record.repo, record.run)
+  const path = await scenesPath(record, flags.scenes)
+  let scenesFile: string
+  const existing = await readFile(path, "utf8").catch(() => null)
+  if (existing !== null) {
+    const problems = problemsOf(JSON.parse(existing))
+    if (problems.length)
+      throw new Error(
+        `the scenes file has problems; fix them first (the probe reads its baseUrl, viewport and roles):\n${problems.map((p) => `${p.path}: ${p.message}`).join("\n")}`,
+      )
+    scenesFile = path
+  } else {
+    // No scenes yet: a full URL is enough, with no roles.
+    let origin: string
+    try {
+      origin = new URL(url).origin
+    } catch {
+      throw new Error(`no ${path} yet: give a full URL (http://localhost:<port>/...)`)
+    }
+    if (flags.role) throw new Error(`--role ${flags.role}: no ${path} yet to define it in`)
+    scenesFile = join(dir, ".probe-scenes.json")
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      scenesFile,
+      JSON.stringify(
+        scenesFileSchema.parse({
+          version: 1,
+          title: "probe",
+          baseUrl: origin,
+          scenes: [{ id: "probe", title: "probe", url: "/", steps: [{ checkpoint: "probe", caption: "probe" }] }],
+        }),
+      ),
+    )
+  }
+  const recorder = await assetPath("record.mjs")
+  for (const [from, to] of [
+    [recorder, `${record.container}:${INSIDE}/record.mjs`],
+    [scenesFile, `${record.container}:${INSIDE}/probe-scenes.json`],
+  ] as const) {
+    const copied = await docker(["cp", from, to])
+    if (copied.code !== 0) throw new Error(`docker cp failed: ${copied.stderr.trim()}`)
+  }
+  const out = `${INSIDE_OUT}/probe`
+  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+  const command = [
+    `rm -rf ${out}`,
+    `PLAYWRIGHT_BROWSERS_PATH=${INSIDE}/browsers node ${INSIDE}/record.mjs --scenes ${INSIDE}/probe-scenes.json --out ${out} --probe ${quote(url)}` +
+      (flags.role ? ` --role ${quote(flags.role)}` : "") +
+      (flags.find ?? []).map((find) => ` --find ${quote(find)}`).join(""),
+  ].join(" && ")
+  const result = await exec(record, command, { cwd: INSIDE, timeoutMs: 5 * 60_000 })
+  const local = join(dir, "probe")
+  await rm(local, { recursive: true, force: true })
+  const copied = await docker(["cp", `${record.container}:${out}`, local])
+  if (result.exitCode !== 0 || copied.code !== 0) {
+    const reason = (result.stderr || result.stdout).trim().split("\n").slice(-3).join("\n")
+    if (flags.json) console.log(JSON.stringify({ ok: false, error: reason }, null, 2))
+    else console.error(`pr2video: the probe failed:\n${reason}`)
+    return 1
+  }
+  const report = (await readJson(join(local, "probe.json"))) as {
+    url: string
+    status: number | null
+    title: string
+    finds: Array<{
+      locator: string
+      count?: number
+      error?: string
+      matches?: Array<{
+        visible: boolean
+        box: { x: number; y: number; width: number; height: number } | null
+        tag: string
+        text: string
+      }>
+    }>
+    outline: Array<{ role: string; name: string; testId: string | null }>
+  }
+  if (flags.json) {
+    console.log(
+      JSON.stringify({ ok: true, ...report, screenshot: join(local, "probe.png") }, null, 2),
+    )
+    return 0
+  }
+  console.log(`${report.url} (${report.status ?? "no status"}) "${report.title}"`)
+  for (const find of report.finds) {
+    if (find.error) {
+      console.log(`  ${find.locator}: ${find.error}`)
+      continue
+    }
+    console.log(`  ${find.locator}: ${find.count} match${find.count === 1 ? "" : "es"}`)
+    for (const m of find.matches ?? [])
+      console.log(
+        `    <${m.tag}> ${m.visible ? "" : "(hidden) "}${m.box ? `at ${m.box.x},${m.box.y} ${m.box.width}x${m.box.height}` : "no box"}${m.text ? ` "${m.text}"` : ""}`,
+      )
+  }
+  if (report.outline.length) {
+    console.log('  on the page (role "name"; check a locator with --find before relying on it):')
+    for (const item of report.outline)
+      console.log(
+        `    ${item.role} ${JSON.stringify(item.name)}${item.testId ? ` testId=${JSON.stringify(item.testId)}` : ""}`,
+      )
+  }
+  console.log(`screenshot: ${join(local, "probe.png")}`)
+  return 0
+}
 
 export async function recordCommand(flags: RecordFlags): Promise<number> {
   const side = flags.side ?? "head"
@@ -201,22 +334,38 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   } else {
     console.log(`\nrecordings in ${local}`)
     for (const s of scenes)
-      console.log(`  ${s.scene}: ${s.status}${s.error ? ` (stopped: ${s.error.message})` : ""}`)
+      console.log(
+        `  ${s.scene}: ${s.status}${s.error ? ` (stopped: ${s.error.message})` : ""}` +
+          (side === "head" && s.missing.length
+            ? `; not found, so not marked: ${s.missing.join("; ")}`
+            : ""),
+      )
   }
   return ok ? 0 : 1
 }
 
+type SceneSummary = Pick<SceneResult, "scene" | "status" | "error"> & {
+  /** `<checkpoint> <locator>` for each focus or mark that was not on the page. */
+  missing: Array<string>
+}
+
 /** Every scene recorded on a side, from each scene folder's result.json. */
-async function sceneResults(
-  local: string,
-): Promise<Array<Pick<SceneResult, "scene" | "status" | "error">>> {
-  const out: Array<Pick<SceneResult, "scene" | "status" | "error">> = []
+async function sceneResults(local: string): Promise<Array<SceneSummary>> {
+  const out: Array<SceneSummary> = []
   for (const entry of await readdir(local, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory()) continue
     const result = (await readJson(join(local, entry.name, "result.json")).catch(
       () => null,
     )) as SceneResult | null
-    if (result) out.push({ scene: result.scene, status: result.status, error: result.error })
+    if (result)
+      out.push({
+        scene: result.scene,
+        status: result.status,
+        error: result.error,
+        missing: result.checkpoints.flatMap((cp) =>
+          (cp.missing ?? []).map((gone) => `${cp.checkpoint} ${gone}`),
+        ),
+      })
   }
   return out
 }
@@ -229,6 +378,34 @@ async function writeSummary(local: string, side: string): Promise<void> {
   )
 }
 
+/**
+ * `--before` ids: a scene, a checkpoint, or `<scene>-<checkpoint>` (`/` is read
+ * as `-`). An id that names nothing is an error, not a silent "left out".
+ */
+function beforeIds(scenes: ScenesFile, list: string): Set<string> {
+  const known = new Set<string>()
+  const pairs: string[] = []
+  for (const scene of scenes.scenes) {
+    known.add(scene.id)
+    for (const step of scene.steps)
+      if ("checkpoint" in step) {
+        known.add(step.checkpoint)
+        pairs.push(`${scene.id}-${step.checkpoint}`)
+      }
+  }
+  for (const pair of pairs) known.add(pair)
+  const ids = list
+    .split(",")
+    .map((id) => id.trim().replace("/", "-"))
+    .filter(Boolean)
+  const unknown = ids.filter((id) => !known.has(id))
+  if (unknown.length)
+    throw new Error(
+      `--before ${unknown.join(", ")}: no such scene or checkpoint. Use a scene id, a checkpoint id, or <scene>-<checkpoint>, e.g. ${pairs.slice(0, 2).join(", ")}`,
+    )
+  return new Set(ids)
+}
+
 export async function tourDraft(flags: RecordFlags): Promise<number> {
   const record = await resolveRecord(process.cwd(), flags.run)
   const scenes = scenesFileSchema.parse(await readJson(await scenesPath(record, flags.scenes)))
@@ -239,14 +416,7 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
     recordings: join(dir, "recordings", "head"),
     tourDir: dirname(out),
     base: flags.compare || flags.before ? join(dir, "recordings", "base") : undefined,
-    befores: flags.before
-      ? new Set(
-          flags.before
-            .split(",")
-            .map((id) => id.trim())
-            .filter(Boolean),
-        )
-      : undefined,
+    befores: flags.before ? beforeIds(scenes, flags.before) : undefined,
   })
   if (!tour.scenes.length)
     throw new Error("nothing was recorded on the head: run `pr2video record` first")

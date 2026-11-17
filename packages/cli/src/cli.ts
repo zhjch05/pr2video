@@ -32,6 +32,7 @@ import { buildHtml } from "./assemble.ts"
 import { cliVersion, skillDir } from "./assets.ts"
 import { importBetterReview } from "./import.ts"
 import {
+  probeCommand,
   RECORD_HELP,
   type RecordFlags,
   recordCommand,
@@ -42,6 +43,15 @@ import {
 import { SANDBOX_HELP, type SandboxFlags, sandboxCommand } from "./sandbox-commands.ts"
 import { installSkill, SKILL_HELP } from "./skill-commands.ts"
 import { installChromium, renderStills, renderVideo } from "./video.ts"
+
+const TOUR_HELP = `The tour file:
+  pr2video tour draft ...                       Draft it from the recordings (see Recording below)
+  pr2video tour check <tour.json> [--json]      Validate a tour file; exit 1 with its problems
+  pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
+                                                Show the tour's pacing; optionally write captions as WebVTT
+  pr2video narrate <tour.json> [voice opts]     Narrate every scene (see pr2video --help for voices)
+  pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
+                                                Stills, exactly as the video draws them`
 
 const HELP = `pr2video - turn a pull request into a narrated tour
 
@@ -202,19 +212,30 @@ async function main() {
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
       force: { type: "boolean" },
+      role: { type: "string" },
+      find: { type: "string", multiple: true },
     },
   })
   const flags = values as Flags
   const [command, ...rest] = positionals
   const options: VoiceOptions = { speaker: flags.speaker, model: flags.model }
 
-  if (flags.help && (command === "sandbox" || command === "record" || command === "scenes")) {
+  if (
+    flags.help &&
+    (command === "sandbox" ||
+      command === "record" ||
+      command === "scenes" ||
+      command === "probe" ||
+      command === "tour")
+  ) {
     console.log(
       command === "sandbox"
         ? SANDBOX_HELP
         : command === "scenes"
           ? `${RECORD_HELP}\n\n${SCENES_HELP}`
-          : RECORD_HELP,
+          : command === "tour"
+            ? `${TOUR_HELP}\n\n${RECORD_HELP}`
+            : RECORD_HELP,
     )
     return
   }
@@ -370,6 +391,10 @@ async function main() {
 
   if (command === "record") {
     process.exit(await recordCommand(flags))
+  }
+
+  if (command === "probe") {
+    process.exit(await probeCommand(rest, flags))
   }
 
   if (command === "sandbox") {

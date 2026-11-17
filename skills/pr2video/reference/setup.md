@@ -21,7 +21,13 @@ across runs, and Docker Hub pulls go through a local cache.
 After `--`, **one argument is a shell command as written**:
 `pr2video sandbox exec -- 'npm ci && npm run build'`. **Several arguments are an argv**, quoted for
 you: `pr2video sandbox exec -- sh -c 'echo one; echo two'`. Commands run as root under `bash -l`,
-in `/work/head` unless you pass `--cwd`.
+in `/work/head` unless you pass `--cwd`. Quoting inside a one-argument command is yours: for SQL
+or anything with nested quotes, write it to a file and `sandbox cp` it in rather than escaping.
+
+A step may run up to 20 minutes (`--timeout <seconds>` for more). A long build or install blocks
+until it ends: run it in the background of your own shell if your tool limits how long a command
+may take, and wait for it to finish before recording the next step (steps are journaled in the
+order they finish).
 
 The host's project folder is only mounted read-only at `/src`, for checking out and copying; never
 work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring in a file you wrote (a seed script, a fixture), copy it:
@@ -34,7 +40,8 @@ run `cp`: a file you change or add later needs another `cp --record`.
 ## Python versions
 
 The image has Python 3.11. A project that needs another (`requires-python`, `.python-version`) gets
-it from uv: install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then run the install
+it from uv: install uv outside the checkout
+(`curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/opt/uv sh`, then call `/opt/uv/uv`), then run the install
 with the version the project's wheels exist for, e.g. `uv sync --python 3.13`, with
 `UV_PYTHON_INSTALL_DIR=/opt/uv-python` so the interpreter stays outside `/work/head` and replay
 reuses it. A newer Python than the project names can lack wheels for its compiled dependencies.
@@ -64,9 +71,13 @@ on 24; if it does not, run that version for the project's commands with `npx -y 
    fails early if the process exits; then read `pr2video sandbox logs <name>`. A start whose port
    never answers is not recorded. If a temporary server answers first (a migration screen), add
    `--path` with a route only the real app serves, e.g. `--path /api/health`. In a monorepo, start
-   it in the app's own folder with `--cwd /work/head/<app>`; set `BROWSER=none` for a dev server
-   that would try to open a browser.
-4. Check the app answers: `pr2video sandbox exec -- curl -sI http://localhost:<port>/`.
+   it in the app's own folder with `--cwd /work/head/<app>` (replay rewrites it to `/work/base/<app>`,
+   like any path under `/work/head`); set `BROWSER=none` for a dev server that would try to open a browser.
+   A `dev` script that runs through a proxy or tunnel (portless, a named host, HTTPS on a custom
+   domain) will not answer on a plain port: run the tool it wraps (`vite dev --port 5173`) instead.
+4. Check the app answers: `pr2video sandbox exec -- curl -sI http://localhost:<port>/`. Then
+   check what it shows with `pr2video probe http://localhost:<port>/` (see scenes.md): a single-page
+   app answers curl with an empty shell.
 
 ## Make every recorded step replayable
 
@@ -103,6 +114,14 @@ setup (`tests/e2e/*setup*`, `playwright/`, `cypress/support/`, fixtures) shows h
 past the first run, usually in a few API calls. Record those as setup steps, written so they can
 run again (a second run must not fail because the password is already changed).
 
+- An auth library that checks the request's origin (better-auth, NextAuth, Django's
+  `CSRF_TRUSTED_ORIGINS`) must be configured with the origin the recorder uses, the `baseUrl` in
+  `scenes.json` (`http://localhost:<port>`), not the project's usual dev host.
+- Sign-up that needs a verified email: sign up through the app's API, then mark the address
+  verified in the database, as a recorded seed step.
+- A first-run dialog or tour that every fresh browser sees (a "What's new", a cookie banner) belongs
+  in the role's sign-in steps: a click on its close button, then a wait for the page behind it.
+
 A framework whose admin user is made interactively (Django's `createsuperuser`, Rails' console)
 is made in the seed instead: e.g. a Python step
 `python manage.py shell -c "from django.contrib.auth.models import User; User.objects.filter(username='demo').exists() or User.objects.create_superuser('demo', 'demo@example.com', 'demo-password')"`.
@@ -113,6 +132,12 @@ Most changes only show with data: items in a list, a record to open. Create it t
 own API or a script, as a recorded step after the server is up, so a base gets the same data.
 Read the app's tests (e2e helpers, fixtures) for how they create users and records; they are
 usually the shortest path. First-run setup wizards (create the admin account) are often an API call.
+
+- **Check that the seed wrote what you need before recording**: a `select count(*)` on the users
+  and records the scenes rely on. A seed script can exit 0 and write nothing (a module that only
+  exports its function), and the first sign of it is otherwise a failed sign-in.
+- Seed enough history for what the page compares: "the 30 days before" needs data reaching twice
+  as far back as the period shown.
 
 ## Saving the setup for next time
 

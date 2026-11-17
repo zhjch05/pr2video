@@ -43,7 +43,6 @@ the focus to the middle, measures it and the marks, and takes a screenshot.
       { "checkpoint": "switch",
         "caption": "Settings now has a Dark mode switch, under Email notifications.",
         "focus": { "css": ".settings-row:has([role=switch])" },
-        "zoom": 1.5,
         "marks": [{ "locator": { "role": "switch", "name": "Dark mode" }, "tone": "added", "label": null }] },
       { "click": { "role": "switch", "name": "Dark mode" } },
       { "checkpoint": "on", "caption": "Turning it on themes the page and confirms with a notice." }
@@ -75,12 +74,32 @@ a person would describe it; read the component's code for the accessible name. U
 nothing else names it: it is Playwright's selector engine, so `:has-text("Total")` and `:has(...)`
 work as well as plain CSS.
 
+- A component library decides the role, not the tag you see in its props: a `<Button>` that renders
+  a link is often still `role: "button"`.
+- Utility classes (Tailwind, UnoCSS) are not stable names, and UnoCSS's attributify mode puts them
+  in attributes, not `class`: prefer role, text or `:has(...)` over a utility class.
+
+**Check a locator on the live page before a scene depends on it.** `curl` sees only the empty shell
+of a single-page app; `pr2video probe` opens the page in the recorder's browser, signed in as a role
+from `scenes.json`, and records nothing:
+
+```bash
+pr2video probe /settings --role admin                       # the page's headings, controls and fields, with roles and names
+pr2video probe /settings --role admin --find '{"role":"switch","name":"Dark mode"}' --find '{"css":".settings-row"}'
+```
+
+With `--find` it prints how many elements each locator matches, whether each is visible, its box
+and its text; `probe.png` is the page as the recorder saw it. Before `scenes.json` exists, give a
+full URL (`http://localhost:3000/settings`), with no role.
+
 ## Focus and marks
 
 - `focus` is what the caption is about: the recorder scrolls it to the middle (no `scrollTo` step
   needed) and the tour zooms towards it. Focus the **row, card or section** that holds the change,
-  with `zoom: 1.5`, so its label and context stay readable. Zoom 2 only for a control whose meaning
-  is clear on its own. A heading is a thin strip: to focus the panel under a heading, use the box
+  so its label and context stay readable, and leave `zoom` out: the draft asks for 1.5 and the
+  player zooms as far as the focus fits, so a wide card zooms a little and one that nearly fills
+  the screen not at all (`tour check` warns about that). Set `zoom: 2` only for a control whose meaning
+  is clear on its own, and `zoom: 1` to show the whole screen. A heading is a thin strip: to focus the panel under a heading, use the box
   that holds it, e.g. `{ "css": "div:has(> :text-is(\"Pages\"))" }`.
 - No focus: the tour zooms towards the marks at the scene's `zoom` (the draft gives 2; set 1 in the
   tour to show the whole screen), and the recorder scrolls the first mark into view if it is

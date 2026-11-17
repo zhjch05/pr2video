@@ -3,6 +3,7 @@
  * Human output streams; `--json` answers one object per command.
  */
 import { access } from "node:fs/promises"
+import { relative } from "node:path"
 
 import {
   copyIn,
@@ -18,6 +19,7 @@ import {
   replay,
   resolveRecord,
   restoredSteps,
+  runDir,
   type SandboxRecord,
   saveData,
   start,
@@ -103,6 +105,13 @@ export function shellCommand(args: ReadonlyArray<string>): string {
   return args.map(shellQuote).join(" ")
 }
 
+/** The run's folder (`.pr2video/<run>/`), relative to where the command ran when it is inside. */
+function runFolder(cwd: string, record: SandboxRecord): string {
+  const dir = runDir(record.repo, record.run)
+  const rel = relative(cwd, dir)
+  return rel && !rel.startsWith("..") ? `${rel}/` : `${dir}/`
+}
+
 /** What the head is: a commit, or a copy of the working folder. */
 function headLabel(record: SandboxRecord): string {
   return record.head.folder
@@ -177,6 +186,7 @@ export async function sandboxCommand(
             ? `, base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`
             : ", no base"),
       )
+      say(`run ${record.run}: write scenes and the tour in ${runFolder(cwd, record)}`)
       return 0
     }
     case "exec": {
