@@ -153,7 +153,14 @@ export async function probeCommand(
           version: 1,
           title: "probe",
           baseUrl: origin,
-          scenes: [{ id: "probe", title: "probe", url: "/", steps: [{ checkpoint: "probe", caption: "probe" }] }],
+          scenes: [
+            {
+              id: "probe",
+              title: "probe",
+              url: "/",
+              steps: [{ checkpoint: "probe", caption: "probe" }],
+            },
+          ],
         }),
       ),
     )
