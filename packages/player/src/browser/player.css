@@ -111,6 +111,7 @@ body {
 }
 
 .p2v-pill {
+  /* left and top are set per label, off the text and controls around it */
   position: absolute;
   top: -24px;
   left: 0;

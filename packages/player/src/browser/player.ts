@@ -27,7 +27,7 @@ import {
 import { Replayer } from "rrweb"
 
 import type { PlayerData } from "../data.ts"
-import { captionSide, easeTransform, type FrameState, frameAt } from "../frame.ts"
+import { captionSide, easeTransform, type FrameState, frameAt, labelSpot } from "../frame.ts"
 import { letAnimationsFinish, loaded, painted, pinRemovals, rescroll } from "./replay.ts"
 
 type Events = Array<{ timestamp: number; type?: number; data?: never }>
@@ -204,6 +204,10 @@ export class TourPlayer {
     this.stage.style.height = `${Math.round(height * scale)}px`
     this.current.scale = scale
     this.current.left = 0
+    // What was measured in stage pixels is measured again at the new size.
+    this.controlsCache = null
+    this.textCache = null
+    this.labelSpots.clear()
     if (replayer) {
       const wrapper = replayer.wrapper
       wrapper.style.position = "absolute"
@@ -275,6 +279,47 @@ export class TourPlayer {
     return boxes
   }
 
+  private textCache: { index: number; boxes: Array<Box> } | null = null
+
+  /**
+   * The lines of text on top at the checkpoint, in stage pixels: what a mark's
+   * label must not cover. Measured once per scene, when its marks first show.
+   */
+  private textOnShow(index: number): Array<Box> {
+    if (this.textCache?.index === index) return this.textCache.boxes
+    const boxes: Array<Box> = []
+    const doc = this.current.replayer?.iframe.contentDocument
+    if (doc?.body) {
+      const { scale, left } = this.current
+      const view = doc.defaultView
+      const walker = doc.createTreeWalker(doc.body, 4 /* NodeFilter.SHOW_TEXT */)
+      const range = doc.createRange()
+      for (let n = 0, node = walker.nextNode(); node && n < 3000; n++, node = walker.nextNode()) {
+        if (!node.textContent?.trim()) continue
+        const parent = node.parentElement
+        if (!parent) continue
+        range.selectNodeContents(node)
+        for (const rect of Array.from(range.getClientRects())) {
+          if (rect.width < 2 || rect.height < 2) continue
+          if (view && (rect.bottom < 0 || rect.top > view.innerHeight)) continue
+          const hit = doc.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+          if (!hit || !(hit === parent || parent.contains(hit) || hit.contains(parent))) continue
+          boxes.push({
+            x: left + rect.x * scale,
+            y: rect.y * scale,
+            width: rect.width * scale,
+            height: rect.height * scale,
+          })
+        }
+      }
+    }
+    this.textCache = { index, boxes }
+    return boxes
+  }
+
+  /** Each label's spot by scene and mark, chosen once so it does not move while the scene plays. */
+  private labelSpots = new Map<string, { x: number; y: number }>()
+
   /** Where a target is on the stage now, in stage pixels; null when its node has left the page. */
   private locate(target: Target): Box | null {
     const replayer = this.current.replayer
@@ -314,17 +359,49 @@ export class TourPlayer {
     this.zoomLayer.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`
 
     this.marksLayer.replaceChildren()
-    if (state.moment.marked)
+    if (state.moment.marked) {
+      const outlines = markBoxes.map((box) =>
+        box ? { x: box.x - 4, y: box.y - 4, width: box.width + 8, height: box.height + 8 } : null,
+      )
+      // A label covers neither text nor a control, nor another mark or label, where it can help it.
+      const placed: Array<Box & { weight: number }> = outlines.flatMap((o) =>
+        o ? [{ ...o, weight: 4 }] : [],
+      )
       for (const [i, marker] of scene.markers.entries()) {
-        const box = markBoxes[i]
-        if (!box) continue
+        const outline = outlines[i]
+        if (!outline) continue
         const mark = el("div", `p2v-mark p2v-tone-${marker.tone}`, this.marksLayer)
-        mark.style.left = `${box.x - 4}px`
-        mark.style.top = `${box.y - 4}px`
-        mark.style.width = `${box.width + 8}px`
-        mark.style.height = `${box.height + 8}px`
-        if (marker.label) el("span", "p2v-pill", mark).textContent = marker.label
+        mark.style.left = `${outline.x}px`
+        mark.style.top = `${outline.y}px`
+        mark.style.width = `${outline.width}px`
+        mark.style.height = `${outline.height}px`
+        if (!marker.label) continue
+        const pill = el("span", "p2v-pill", mark)
+        pill.textContent = marker.label
+        const key = `${scene.id} ${i}`
+        let spot = this.labelSpots.get(key)
+        if (!spot) {
+          const size = { width: pill.offsetWidth, height: pill.offsetHeight }
+          const others = placed.filter((box) => box.x !== outline.x || box.y !== outline.y)
+          spot = labelSpot(
+            outline,
+            size,
+            [...this.textOnShow(state.index), ...this.controlsOnShow(state.index), ...others],
+            { width, height },
+          )
+          this.labelSpots.set(key, spot)
+        }
+        pill.style.left = `${spot.x}px`
+        pill.style.top = `${spot.y}px`
+        placed.push({
+          x: outline.x + spot.x,
+          y: outline.y + spot.y,
+          width: pill.offsetWidth,
+          height: pill.offsetHeight,
+          weight: 4,
+        })
       }
+    }
 
     const showCaption = this.captionsOn && state.moment.captioned
     this.caption.hidden = !showCaption

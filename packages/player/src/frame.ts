@@ -118,3 +118,55 @@ export function captionSide(
   if (atBottom === 0) return "bottom"
   return covered(0, band) < atBottom ? "top" : "bottom"
 }
+
+/**
+ * Where a mark's label goes, as an offset from the mark's outline: the first
+ * of the usual spots (above, then below, then beside, left before right) that
+ * covers nothing, else the one that covers least. `obstacles` are what the
+ * viewer reads - text, controls, other marks and labels already placed - and
+ * the label stays inside `bounds`. All in the same pixels as `mark`.
+ */
+export function labelSpot(
+  mark: Rect,
+  label: { width: number; height: number },
+  obstacles: ReadonlyArray<Rect>,
+  bounds: { width: number; height: number },
+  gap = 4,
+): { x: number; y: number } {
+  const { width: w, height: h } = label
+  const candidates = [
+    { x: 0, y: -h - gap },
+    { x: mark.width - w, y: -h - gap },
+    { x: 0, y: mark.height + gap },
+    { x: mark.width - w, y: mark.height + gap },
+    { x: mark.width + gap, y: (mark.height - h) / 2 },
+    { x: -w - gap, y: (mark.height - h) / 2 },
+  ]
+  const cost = (spot: { x: number; y: number }) => {
+    const x0 = mark.x + spot.x
+    const y0 = mark.y + spot.y
+    const outside =
+      Math.max(0, -x0) +
+      Math.max(0, -y0) +
+      Math.max(0, x0 + w - bounds.width) +
+      Math.max(0, y0 + h - bounds.height)
+    let covered = outside * Math.max(w, h) * 4
+    for (const box of obstacles) {
+      const dx = Math.min(x0 + w, box.x + box.width) - Math.max(x0, box.x)
+      const dy = Math.min(y0 + h, box.y + box.height) - Math.max(y0, box.y)
+      if (dx > 0 && dy > 0) covered += dx * dy * (box.weight ?? 1)
+    }
+    return covered
+  }
+  let best = candidates[0] ?? { x: 0, y: -h - gap }
+  let least = Number.POSITIVE_INFINITY
+  for (const spot of candidates) {
+    const c = cost(spot)
+    if (c < least) {
+      least = c
+      best = spot
+    }
+    if (c === 0) break
+  }
+  return best
+}

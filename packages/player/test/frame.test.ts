@@ -2,7 +2,14 @@ import { FOCUS_MS, type TourScene, tourTimeline } from "@pr2video/tour"
 import { describe, expect, it } from "vitest"
 
 import { embedJson, tourHtml } from "../src/data.ts"
-import { captionSide, cubicBezier, easeTransform, frameAt, zoomEase } from "../src/frame.ts"
+import {
+  captionSide,
+  cubicBezier,
+  easeTransform,
+  frameAt,
+  labelSpot,
+  zoomEase,
+} from "../src/frame.ts"
 
 const scene: TourScene = {
   id: "s1",
@@ -97,5 +104,39 @@ describe("captionSide", () => {
       { x: 0, y: 0, width: 1280, height: 60 },
     ]
     expect(captionSide(stage, none, boxes, 40)).toBe("bottom")
+  })
+})
+
+describe("labelSpot", () => {
+  const bounds = { width: 1280, height: 800 }
+  const mark = { x: 400, y: 300, width: 300, height: 40 }
+  const label = { width: 80, height: 20 }
+
+  it("goes above the mark when nothing is there", () => {
+    expect(labelSpot(mark, label, [], bounds)).toEqual({ x: 0, y: -24 })
+  })
+
+  it("moves off a field's own label above it", () => {
+    // The field's label text sits just above its left end, where the label would go.
+    const fieldLabel = { x: 400, y: 270, width: 90, height: 20 }
+    expect(labelSpot(mark, label, [fieldLabel], bounds)).toEqual({ x: 220, y: -24 })
+  })
+
+  it("goes below when the whole band above is taken, and beside when below is too", () => {
+    const above = { x: 300, y: 260, width: 500, height: 36 }
+    expect(labelSpot(mark, label, [above], bounds)).toEqual({ x: 0, y: 44 })
+    const below = { x: 300, y: 344, width: 500, height: 30 }
+    expect(labelSpot(mark, label, [above, below], bounds)).toEqual({ x: 304, y: 10 })
+  })
+
+  it("stays on the stage", () => {
+    const top = { x: 10, y: 4, width: 300, height: 40 }
+    expect(labelSpot(top, label, [], bounds)).toEqual({ x: 0, y: 44 })
+  })
+
+  it("takes the spot that covers least when every spot covers something", () => {
+    const all = [{ x: 0, y: 0, width: 1280, height: 800 }]
+    const small = [...all, { x: 400, y: 270, width: 90, height: 30, weight: 10 }]
+    expect(labelSpot(mark, label, small, bounds)).toEqual({ x: 220, y: -24 })
   })
 })
