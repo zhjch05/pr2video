@@ -32,21 +32,13 @@ export function secretsPath(repo: string): string {
   return join(repo, STATE_DIR, SECRETS_FILE)
 }
 
-/** The project's secrets; none when the file does not exist. Stored one `NAME=<JSON string>` a line. */
+/**
+ * The project's secrets; none when the file does not exist. It is a plain
+ * `.env` file (`NAME=value`, quotes optional), so the user can edit it by hand;
+ * `writeSecrets` double-quotes every value.
+ */
 export async function readSecrets(repo: string): Promise<Secrets> {
-  const text = await readFile(secretsPath(repo), "utf8").catch(() => "")
-  const secrets: Secrets = {}
-  for (const line of text.split("\n")) {
-    const at = line.indexOf("=")
-    if (at < 1) continue
-    const name = line.slice(0, at)
-    if (!NAME.test(name)) continue
-    try {
-      const value = JSON.parse(line.slice(at + 1))
-      if (typeof value === "string") secrets[name] = value
-    } catch {}
-  }
-  return secrets
+  return parseEnvFile(await readFile(secretsPath(repo), "utf8").catch(() => ""))
 }
 
 export async function writeSecrets(repo: string, secrets: Secrets): Promise<void> {
@@ -57,7 +49,10 @@ export async function writeSecrets(repo: string, secrets: Secrets): Promise<void
   const file = secretsPath(repo)
   const body = Object.entries(secrets)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, value]) => `${name}=${JSON.stringify(value)}`)
+    .map(
+      ([name, value]) =>
+        `${name}="${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`,
+    )
     .join("\n")
   await writeFile(file, body ? `${body}\n` : "", { mode: 0o600 })
   await chmod(file, 0o600)
@@ -78,7 +73,8 @@ export function parseEnvFile(text: string): Secrets {
     const quote = value[0]
     if ((quote === '"' || quote === "'") && value.lastIndexOf(quote) > 0) {
       value = value.slice(1, value.lastIndexOf(quote))
-      if (quote === '"') value = value.replace(/\\n/g, "\n").replace(/\\(["\\])/g, "$1")
+      if (quote === '"')
+        value = value.replace(/\\(["\\n])/g, (_, c: string) => (c === "n" ? "\n" : c))
     } else value = value.replace(/\s+#.*$/, "").trim()
     out[match[1]] = value
   }

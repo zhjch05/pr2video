@@ -25,7 +25,8 @@ export const ENV_HELP = `Secrets (values the app needs that nobody can make up: 
   pr2video sandbox env import <file> <NAME,...> Copy those names' values from a .env file you name
   pr2video sandbox env ls | rm <NAME>           The names set (never the values) | forget one
   Every exec and start gets them as environment variables (write $NAME in commands, never the
-  value); logs and output show *** in their place. Kept in .pr2video/secrets.env, never committed.`
+  value); logs and output show *** in their place. Kept in .pr2video/secrets.env (a plain .env file
+  you may also edit by hand), never committed.`
 
 /** Reads a value without showing it: hidden keystrokes on a terminal, else all of stdin. */
 async function readHidden(prompt: string): Promise<string> {

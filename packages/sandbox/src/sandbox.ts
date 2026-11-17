@@ -657,6 +657,8 @@ export async function exec(
   const cwd = options.cwd ?? record.head.dir
   const secrets = await readSecrets(record.repo)
   refuseValues(command, secrets)
+  // The file may have been edited by hand since: every command sees it as it is now.
+  await syncSecrets(record.container, secrets)
   const onOutput = options.onOutput
   const started = Date.now()
   const raw = await docker(
@@ -764,7 +766,9 @@ export async function start(
 ): Promise<{ pid: number; wait: WaitResult | null; recorded: boolean }> {
   validName(name)
   const cwd = options.cwd ?? record.head.dir
-  refuseValues(command, await readSecrets(record.repo))
+  const secrets = await readSecrets(record.repo)
+  refuseValues(command, secrets)
+  await syncSecrets(record.container, secrets)
   await stop(record, name)
   const launched = await inside(
     record.container,

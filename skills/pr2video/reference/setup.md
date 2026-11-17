@@ -177,7 +177,9 @@ Ask once, for all the blockers together, before recording. Name each variable, w
 
 - **Provide it**: the user runs, in their own terminal (never by pasting the value into the chat):
   `pr2video sandbox env set STRIPE_SECRET_KEY` (it asks for the value without showing it), or
-  points you at a file they already have: `pr2video sandbox env import ~/app/.env STRIPE_SECRET_KEY`.
+  points you at a file they already have: `pr2video sandbox env import ~/app/.env STRIPE_SECRET_KEY`
+  (you can run that one: it prints no value). They can also add `NAME=value` lines to
+  `.pr2video/secrets.env` in an editor; the next command picks them up.
   Ask for a test-mode or sandbox key, never a live one.
 - **Skip it**: leave out the scenes that need it; the tour says which and why.
 - **Stub it**: film the app against a stand-in; the tour says the service's side is not real.

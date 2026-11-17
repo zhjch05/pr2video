@@ -194,7 +194,8 @@ pr2video sandbox env set STRIPE_SECRET_KEY                  # asks for the value
 pr2video sandbox env import ~/app/.env STRIPE_SECRET_KEY    # or copy it from a file you have
 ```
 
-They stay in `.pr2video/secrets.env` (readable only by you, never committed) and reach the sandbox's
+Or add `NAME=value` lines to `.pr2video/secrets.env` in an editor. They stay in that file (readable
+only by you, never committed) and reach the sandbox's
 commands as environment variables. Recorded setup refers to them by name, and every log and piece of
 output shows `***` in their place. Give test-mode keys, not live ones: the app in the sandbox can
 use whatever it is given.
