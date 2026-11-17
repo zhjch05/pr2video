@@ -156,7 +156,7 @@ pr2video speak <text> -o <path> [voice opts]  Speak one line
 pr2video narrate <tour.json> [voice opts]     Narrate every scene of a tour
 pr2video tour check <tour.json> [--json]      Validate a tour file
 pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
-pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080]
+pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080 | --size 1920x1080]
 pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
 pr2video skill install <skills folder>        Copy the agent skill for this version
 pr2video --version

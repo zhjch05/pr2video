@@ -33,6 +33,11 @@ import {
   scenesFileSchema,
 } from "./scenes.ts"
 
+/**
+ * The browser's locale, fixed so a native control (a date field) reads the
+ * same here and when the player draws it for an MP4.
+ */
+const LOCALE = "en-US"
 /** A beat between steps, so the recording reads as a person using the app. */
 const STEP_PAUSE_MS = 500
 /** The recording keeps going this long after a checkpoint's screenshot. */
@@ -333,7 +338,7 @@ class SignInError extends Error {
 
 async function signIn(browser: Browser, role: string): Promise<string> {
   const steps = file.roles[role]?.steps ?? []
-  const context = await browser.newContext({ viewport: file.viewport })
+  const context = await browser.newContext({ locale: LOCALE, viewport: file.viewport })
   const page = await context.newPage()
   try {
     await page.goto(file.baseUrl, { waitUntil: "load", timeout: WARMUP_TIMEOUT_MS })
@@ -388,6 +393,7 @@ async function recordScene(
   const storageState = scene.role ? auth.get(scene.role) : undefined
   const viewport = scene.viewport ?? file.viewport
   const context: BrowserContext = await browser.newContext({
+    locale: LOCALE,
     viewport,
     // The app's Content-Security-Policy is for its users, not the recorder:
     // a strict one blocks the worker rrweb pictures canvases with (charts
@@ -680,6 +686,7 @@ async function warmUp(browser: Browser, scenes: ReadonlyArray<Scene>, auth: Map<
     seen.add(key)
     const storageState = scene.role ? auth.get(scene.role) : undefined
     const context = await browser.newContext({
+      locale: LOCALE,
       viewport: scene.viewport ?? file.viewport,
       ...(storageState ? { storageState } : {}),
     })
@@ -755,6 +762,7 @@ async function probe(url: string, role: string | undefined, finds: ReadonlyArray
     await mkdir(out, { recursive: true })
     const storageState = role ? await signIn(browser, role) : undefined
     const context = await browser.newContext({
+      locale: LOCALE,
       viewport: file.viewport,
       ...(storageState ? { storageState } : {}),
     })

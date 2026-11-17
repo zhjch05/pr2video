@@ -189,3 +189,25 @@ describe("keepWritten", () => {
     expect(asked.notInTour).toEqual([])
   })
 })
+
+describe("videoSize", () => {
+  it("keeps the recording's shape with --height", async () => {
+    const { videoSize } = await import("../src/video.ts")
+    expect(videoSize({ width: 1280, height: 800 }, { height: 1080 })).toEqual({
+      scale: 1.35,
+      picture: { width: 1728, height: 1080 },
+      frame: { width: 1728, height: 1080 },
+    })
+  })
+
+  it("fits the recording inside --size, with bars where the shapes differ", async () => {
+    const { videoSize } = await import("../src/video.ts")
+    const wide = videoSize({ width: 1280, height: 800 }, { size: { width: 1920, height: 1080 } })
+    expect(wide.frame).toEqual({ width: 1920, height: 1080 })
+    expect(wide.picture).toEqual({ width: 1728, height: 1080 })
+    const tall = videoSize({ width: 1280, height: 800 }, { size: { width: 1080, height: 1920 } })
+    expect(tall.picture).toEqual({ width: 1080, height: 676 })
+    const odd = videoSize({ width: 1280, height: 720 }, { size: { width: 1279, height: 721 } })
+    expect(odd.frame).toEqual({ width: 1280, height: 722 })
+  })
+})

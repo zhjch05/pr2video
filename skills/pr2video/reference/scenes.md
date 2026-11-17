@@ -113,7 +113,8 @@ full URL (`http://localhost:3000/settings`), with no role.
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
 - A mark's `label` is a few words beside its outline ("New filter", "Was 3, now 5"). Give every
   mark a label when a checkpoint has two or more, so the viewer can tell which outline the caption
-  means; with one mark, `null`. Write labels here, in `scenes.json`: drafting the tour again takes
+  means; with one mark, `null`. Say what the viewer should notice, not what is already written
+  inside the box: "New button" or "Was 3, now 5", not the button's own text. Write labels here, in `scenes.json`: drafting the tour again takes
   marks fresh from this file. The player places each label where it covers the least text; check
   them on a still.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two

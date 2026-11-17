@@ -62,8 +62,11 @@ Usage:
   pr2video tour check <tour.json> [--json]      Validate a tour file; exit 1 with its problems
   pr2video tour timeline <tour.json> [--vtt <out.vtt>] [--json]
                                                 Show the tour's pacing; optionally write captions as WebVTT
-  pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080] [--workers n]
-                                                The tour as one self-contained HTML file and/or an MP4
+  pr2video render <tour.json> [--html <out.html>] [--mp4 <out.mp4>] [--fps 30] [--height 1080 | --size WxH] [--workers n]
+                                                The tour as one self-contained HTML file and/or an MP4.
+                                                --height keeps the recording's shape (default 1080 tall);
+                                                --size 1920x1080 is the exact frame, the recording fitted
+                                                inside with black bars where its shape differs
   pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
                                                 Single frames as PNGs, exactly as the video draws them
   pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
@@ -101,6 +104,7 @@ type Flags = SandboxFlags &
     png?: string
     fps?: string
     height?: string
+    size?: string
     workers?: string
     help?: boolean
     version?: boolean
@@ -209,6 +213,7 @@ async function main() {
       fps: { type: "string" },
       workers: { type: "string" },
       height: { type: "string" },
+      size: { type: "string" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
       force: { type: "boolean" },
@@ -438,10 +443,20 @@ async function main() {
         if (!Number.isFinite(n) || n <= 0) fail(`--${name} must be a positive number`, flags.json)
         return n
       }
+      let size: { width: number; height: number } | undefined
+      if (flags.size) {
+        const match = /^(\d+)x(\d+)$/i.exec(flags.size.trim())
+        if (!match) fail("--size is <width>x<height>, e.g. 1920x1080", flags.json)
+        if (flags.height) fail("give --size or --height, not both", flags.json)
+        size = { width: Number(match[1]), height: Number(match[2]) }
+        if (size.width < 16 || size.height < 16 || size.width > 7680 || size.height > 4320)
+          fail("--size must be between 16x16 and 7680x4320", flags.json)
+      }
       const video = await renderVideo(tourPath, flags.mp4, {
         fps: number(flags.fps, "fps"),
         workers: number(flags.workers, "workers"),
         height: number(flags.height, "height"),
+        size,
         log: flags.json ? undefined : (line) => console.log(line),
       })
       outputs.mp4 = video

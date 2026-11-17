@@ -20,11 +20,23 @@ import { importInstalled } from "@pr2video/voice"
 
 import { buildHtml } from "./assemble.ts"
 
+/**
+ * The recorder's browser locale. Native controls (a date field's 10/19/2026)
+ * are drawn by the browser, not recorded: drawing them in this machine's
+ * locale would show 19/10/2026 where the recording showed 10/19/2026.
+ */
+const LOCALE = "en-US"
+
 export type VideoOptions = {
   /** Frames per second. */
   fps?: number | undefined
   /** Output height in pixels; the width follows the recording's shape. */
   height?: number | undefined
+  /**
+   * An exact frame size instead: the recording is scaled to fit inside it
+   * and centred, with black bars where its shape differs (letterboxing).
+   */
+  size?: { width: number; height: number } | undefined
   /** JPEG quality of each captured frame, 1-100. */
   quality?: number | undefined
   /** x264 constant rate factor: lower is better and bigger. */
@@ -131,12 +143,45 @@ async function launchChromium() {
   if (!playwright)
     throw new Error("Playwright is missing from this install of pr2video; reinstall it")
   try {
-    return await playwright.chromium.launch({ headless: true })
+    return await playwright.chromium.launch({
+      headless: true,
+      // Linux and Windows draw date fields in this language; macOS uses the system region.
+      args: [`--lang=${LOCALE}`],
+      env: { ...process.env, LANG: `${LOCALE.replace("-", "_")}.UTF-8`, LC_ALL: "" },
+    })
   } catch (error) {
     throw new Error(
       `cannot start Chromium (${(error as Error).message.split("\n")[0]}); install the build this pr2video uses: pr2video browser install (or ${chromiumInstall()})`,
     )
   }
+}
+
+/**
+ * The MP4's size: `height` keeps the recording's shape (the width follows);
+ * `size` is the exact frame, with the recording fitted inside it and black
+ * bars on the sides or top and bottom. Both even, as H.264 needs.
+ */
+export function videoSize(
+  viewport: { width: number; height: number },
+  options: Pick<VideoOptions, "height" | "size">,
+): {
+  scale: number
+  picture: { width: number; height: number }
+  frame: { width: number; height: number }
+} {
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
+  if (options.size) {
+    const frame = { width: even(options.size.width), height: even(options.size.height) }
+    const scale = Math.min(frame.width / viewport.width, frame.height / viewport.height)
+    const picture = {
+      width: Math.min(frame.width, even(viewport.width * scale)),
+      height: Math.min(frame.height, even(viewport.height * scale)),
+    }
+    return { scale, picture, frame }
+  }
+  const scale = (options.height ?? 1080) / viewport.height
+  const picture = { width: even(viewport.width * scale), height: even(viewport.height * scale) }
+  return { scale, picture, frame: picture }
 }
 
 export async function renderVideo(
@@ -151,10 +196,9 @@ export async function renderVideo(
   const first = data.tour.scenes[0]
   if (!first) throw new Error("the tour has no scenes")
   const viewport = first.viewport
-  // The page is the recording's size; the device scale sets the output's.
-  const scale = (options.height ?? 1080) / viewport.height
-  const width = Math.round((viewport.width * scale) / 2) * 2
-  const height = Math.round((viewport.height * scale) / 2) * 2
+  // The page is the recording's size; the device scale sets the picture's.
+  const { scale, picture, frame } = videoSize(viewport, options)
+  const { width, height } = frame
 
   const work = await mkdtemp(join(tmpdir(), "pr2video-render-"))
   const browser = await launchChromium()
@@ -178,7 +222,11 @@ export async function renderVideo(
         const to = Math.min(frames, from + per)
         const segment = join(work, `part-${w}.mp4`)
         // Its own context, so its own renderer process.
-        const context = await browser.newContext({ viewport, deviceScaleFactor: scale })
+        const context = await browser.newContext({
+          viewport,
+          deviceScaleFactor: scale,
+          locale: LOCALE,
+        })
         const page = await context.newPage()
         await openTour(page, htmlPath)
         const cdp = await context.newCDPSession(page)
@@ -195,7 +243,9 @@ export async function renderVideo(
           "-i",
           "-",
           "-vf",
-          `scale=${width}:${height}:flags=lanczos`,
+          picture.width === width && picture.height === height
+            ? `scale=${width}:${height}:flags=lanczos`
+            : `scale=${picture.width}:${picture.height}:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
           "-c:v",
           "libx264",
           "-preset",
@@ -324,7 +374,7 @@ export async function renderStills(
   const work = await mkdtemp(join(tmpdir(), "pr2video-stills-"))
   const browser = await launchChromium()
   try {
-    const page = await browser.newPage({ viewport, deviceScaleFactor: scale })
+    const page = await browser.newPage({ viewport, deviceScaleFactor: scale, locale: LOCALE })
     const htmlPath = join(work, "tour.html")
     await writeFile(htmlPath, html)
     await openTour(page, htmlPath)
