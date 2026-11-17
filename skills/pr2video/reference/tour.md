@@ -60,7 +60,8 @@ marks what changed, and holds while the caption is read aloud.
 
 `pr2video tour draft` writes all of this from the head's recordings; you edit captions, order and
 zoom. Focus and marks come from `scenes.json`: change them there, since drafting again (after
-re-recording) keeps what you wrote in the tour but takes focus and marks fresh. `pr2video narrate` fills in `audio`, `audioMs` and `voice`; do not write them yourself.
+re-recording) keeps what you wrote in the tour but takes focus and marks fresh. `pr2video narrate` fills in each scene's `audio` and `audioMs` and the tour's `voice`; do not write
+them yourself. Drafting again keeps the narration of every caption it keeps.
 `pr2video tour check` also checks every recording and clip it names still exists: after
 re-recording, draft again rather than keeping old timings.
 
@@ -70,8 +71,9 @@ The tour replays what rrweb recorded of the page, not a video. Check stills (`re
 
 - **Browser-drawn pages**: the JSON viewer, PDF viewer and error pages are not part of the page, so
   they replay unstyled. Film a screen of the app instead.
-- **Canvas and video** content is not recorded.
+- **Canvas** (charts, maps) is recorded as a picture twice a second, so a chart shows but an
+  animation is choppy. **Video** content is not recorded.
 - **Images from other sites** (favicons, avatars, CDN pictures) load in the replay only if the viewer
-  is online. Fonts served by the app are inlined; fonts from other sites are not.
+  is online; otherwise they are left out (no broken-image icon). Fonts served by the app are inlined; fonts from other sites are not.
 - **Zoom** applies only when the focus fits magnified with a margin: `tour check` warns when a zoom
   will show smaller than asked. Focus a smaller element, or ask for less zoom.

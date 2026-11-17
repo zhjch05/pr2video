@@ -60,6 +60,27 @@ function formatTime(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`
 }
 
+/**
+ * A recorded canvas picture (a chart) reaches its canvas through
+ * createImageBitmap, which rrweb awaits after a seek has returned: count the
+ * ones in flight, so a rendered frame waits for its charts instead of
+ * catching them blank.
+ */
+let picturesInFlight = 0
+const createBitmap = globalThis.createImageBitmap?.bind(globalThis)
+if (createBitmap)
+  globalThis.createImageBitmap = ((...args: Parameters<typeof createImageBitmap>) => {
+    picturesInFlight++
+    return createBitmap(...args).finally(() => {
+      picturesInFlight--
+    })
+  }) as typeof createImageBitmap
+
+async function canvasPicturesDrawn(): Promise<void> {
+  for (let i = 0; i < 200 && picturesInFlight > 0; i++)
+    await new Promise((done) => setTimeout(done, 5))
+}
+
 export class TourPlayer {
   readonly timeline: TourTimeline
   private readonly scenes: ReadonlyArray<TourScene>
@@ -178,6 +199,21 @@ export class TourPlayer {
       // A seek through rrweb 2.1.6's virtual DOM loses the changes after a navigation's full snapshot.
       useVirtualDom: false,
       triggerFocus: false,
+    })
+    // Draw recorded canvas pictures (charts). rrweb gates this behind
+    // UNSAFE_replayCanvas, which as a constructor option also lets scripts run
+    // in the replay's iframe; set afterwards, the iframe stays script-free and
+    // only the gate opens: the pictures are drawn from this page.
+    ;(
+      replayer as unknown as { config: { UNSAFE_replayCanvas: boolean } }
+    ).config.UNSAFE_replayCanvas = true
+    const dirty = () => {
+      this.canvasesChangedAt = performance.now()
+    }
+    replayer.on("fullsnapshot-rebuilded", dirty)
+    replayer.on("event-cast", (event) => {
+      const e = event as { type?: number; data?: { source?: number } }
+      if (e.type === 3 && e.data?.source === 9) dirty()
     })
     this.current = { events: scene.events, replayer, recorded, scale: 1, left: 0 }
     this.driven = { mode: null, speed: 1, atMs: -1 }
@@ -348,9 +384,7 @@ export class TourPlayer {
     const markBoxes = scene.markers.map((marker) => this.locate(marker))
     const focusBox =
       (scene.focus ? this.locate(scene.focus) : null) ?? unionBox(markBoxes.flatMap((b) => b ?? []))
-    const scale = focusBox
-      ? fittedZoom({ width, height }, focusBox, scene.focus ? scene.zoom : 2)
-      : 1
+    const scale = focusBox ? fittedZoom({ width, height }, focusBox, scene.zoom) : 1
     const target =
       focusBox && scale > 1
         ? zoomTransform({ width, height }, focusBox, scale)
@@ -454,12 +488,67 @@ export class TourPlayer {
     }
     await this.drive(state, exact)
     this.overlay(state)
+    this.showCanvases()
+    this.tidyImages()
     return state
+  }
+
+  /**
+   * Images from other sites in the replay: without a CORS header a
+   * \`crossorigin\` image never loads, so it is dropped and the image loads like
+   * any other when the viewer is online; one that still fails (offline, gone)
+   * is hidden rather than drawn as a broken-image icon.
+   */
+  private tidyImages() {
+    const doc = this.current.replayer?.iframe.contentDocument
+    for (const img of Array.from(doc?.images ?? [])) {
+      if (img.hasAttribute("crossorigin") && !img.src.startsWith("data:")) {
+        const src = img.src
+        img.removeAttribute("crossorigin")
+        img.src = src
+      }
+      const broken = img.complete && img.naturalWidth === 0 && Boolean(img.getAttribute("src"))
+      if (broken !== (img.style.visibility === "hidden"))
+        img.style.visibility = broken ? "hidden" : ""
+    }
+  }
+
+  /** When the replay last drew into a canvas; null once it has been shown. */
+  private canvasesChangedAt: number | null = null
+  private canvasShown = new WeakMap<HTMLCanvasElement, string>()
+
+  /**
+   * The replay's iframe runs no scripts, and a canvas in a document without
+   * scripting shows its fallback content, not its drawing (HTML spec). So
+   * each recorded canvas picture is shown as the canvas's own background.
+   */
+  private showCanvases() {
+    if (this.canvasesChangedAt === null || picturesInFlight > 0) return
+    const doc = this.current.replayer?.iframe.contentDocument
+    for (const canvas of Array.from(doc?.querySelectorAll("canvas") ?? [])) {
+      let url: string
+      try {
+        url = canvas.toDataURL()
+      } catch {
+        continue
+      }
+      if (this.canvasShown.get(canvas) === url) continue
+      this.canvasShown.set(canvas, url)
+      canvas.style.backgroundImage = `url("${url}")`
+      canvas.style.backgroundSize = "100% 100%"
+      canvas.style.backgroundRepeat = "no-repeat"
+    }
+    // A picture drawn from an image arrives a moment after its event: keep looking briefly.
+    if (performance.now() - this.canvasesChangedAt > 1_000) this.canvasesChangedAt = null
   }
 
   /** Render mode: draw the frame at `t` and resolve once it is painted. */
   async seek(t: number): Promise<void> {
     await this.draw(t, true)
+    await canvasPicturesDrawn()
+    // The picture is drawn just after its bitmap resolves: then show it.
+    await new Promise((done) => setTimeout(done, 0))
+    this.showCanvases()
     await painted()
   }
 

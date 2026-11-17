@@ -26,7 +26,12 @@ work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring
 `--record` keeps a copy in the run and journals the copy, so replay brings the same file. Keep it out
 of the project's own files and under `.pr2video/<run>/` on the host.
 
-## Node versions
+## Node and package-manager versions
+
+The sandbox has Node 24, with corepack. A project that pins its package manager in
+`packageManager` gets that version; one that pins it only in `engines` (`"pnpm": "12.3.4"`) gets
+corepack's default, and the install may refuse it: run `corepack prepare pnpm@<version> --activate`
+first, in the same recorded step as the install.
 
 The sandbox has Node 24. A project that pins another (`.nvmrc`, `engines`, `volta`) usually runs
 on 24; if it does not, run that version for the project's commands with `npx -y node@<version>`
@@ -66,6 +71,14 @@ time, on the base:
   the project's compose file. Keep it outside `/work/head`, e.g. `/opt/go`, so replay reuses it.
 - Record setup steps only while working on the head. Something you find you need while on the base
   (a warm-up, a missing file) belongs in the journal too: add it, then `replay` again.
+
+## First sign-in
+
+Many apps stop a fresh install at a first-run step: change the default password, create the first
+account, finish a setup wizard. The README names the default account; the app's own end-to-end
+setup (`tests/e2e/*setup*`, `playwright/`, `cypress/support/`, fixtures) shows how its tests get
+past the first run, usually in a few API calls. Record those as setup steps, written so they can
+run again (a second run must not fail because the password is already changed).
 
 ## Seeding data
 

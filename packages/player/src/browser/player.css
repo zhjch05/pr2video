@@ -351,3 +351,9 @@ body {
     aspect-ratio: 16 / 10;
   }
 }
+
+/* rrweb draws its cursor at the top-left corner until a recorded move places it
+   (a scene whose only mouse event came before a navigation never does): hidden till then. */
+.replayer-mouse:not([style]) {
+  display: none;
+}

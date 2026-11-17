@@ -15,7 +15,9 @@ what to show, how to get the app running, which screens show it, and what to say
 the same every time**: the sandbox, recording, validation, the voice, and the HTML and MP4 output.
 This skill is written for pr2video 0.0.5: if `pr2video --version` does not print that (or you
 were told to use npx), use `npx -y pr2video@0.0.5` wherever this skill says `pr2video`, so the
-commands and flags match what is written here. Pass `--json` when you need to act on the output.
+commands and flags match what is written here. A shell function is the easy way, in any shell:
+`pr2video() { npx -y pr2video@0.0.5 "$@"; }` (a variable holding the command does not split into
+words in zsh). Pass `--json` when you need to act on the output.
 
 Work in `.pr2video/<run>/` in the user's project folder. Every file you write there is checked by a
 `pr2video ... check` command: **loop until the check passes**, and never hand-edit what the CLI wrote.

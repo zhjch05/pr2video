@@ -73,9 +73,17 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
-  if (step.kind === "exec")
-    return `exec${step.data ? " data" : ""} (exit ${step.exitCode}) ${step.cwd}$ ${step.command}`
+  if (step.kind === "exec") return `exec${step.data ? " data" : ""} ${step.cwd}$ ${step.command}`
   return `start ${step.name}${step.port ? ` :${step.port}` : ""} ${step.cwd}$ ${step.command}`
+}
+
+/** A run's record whether or not its sandbox is running: `run`, else the current one. */
+async function storedRecord(cwd: string, run: string | undefined): Promise<SandboxRecord> {
+  const { readRecord, currentRun, repoRoot } = await import("@pr2video/sandbox")
+  const repo = await repoRoot(cwd)
+  const chosen = run ?? (await currentRun(repo))
+  if (!chosen) throw new Error("no sandbox yet: start one with `pr2video sandbox up`")
+  return readRecord(repo, chosen)
 }
 
 /**
@@ -275,7 +283,8 @@ export async function sandboxCommand(
       return 0
     }
     case "journal": {
-      const record = await resolveRecord(cwd, flags.run)
+      // The journal is a file on the host: reading or editing it needs no running sandbox.
+      const record = await storedRecord(cwd, flags.run)
       if (rest[0] === "drop") {
         const dropped = await dropJournalStep(record.repo, record.run, integer(rest[1], "the step"))
         answer({ ok: true, dropped })

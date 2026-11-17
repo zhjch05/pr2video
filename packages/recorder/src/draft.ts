@@ -123,7 +123,7 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
           shotMs: baseCp.shotMs,
           caption: `${BEFORE_CAPTION} (head: ${spec?.caption ?? scene.title})`,
           focus: baseCp.focus,
-          zoom: spec?.zoom ?? (baseCp.focus ? 1.5 : 1),
+          zoom: spec?.zoom ?? (baseCp.focus ? 1.5 : baseCp.marks.length ? 2 : 1),
           markers: baseCp.marks.map((mark) => ({
             box: mark.box,
             node: mark.node,
@@ -147,7 +147,7 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
         shotMs: cp.shotMs,
         caption: spec?.caption ?? scene.title,
         focus: cp.focus,
-        zoom: spec?.zoom ?? (cp.focus ? 1.5 : 1),
+        zoom: spec?.zoom ?? (cp.focus ? 1.5 : cp.marks.length ? 2 : 1),
         markers: cp.marks.map((mark) => ({
           box: mark.box,
           node: mark.node,

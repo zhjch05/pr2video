@@ -17,7 +17,7 @@ const SKILL = new URL("skills/pr2video/SKILL.md", root)
 const SKILL_VERSIONS = [
   /(\n {2}version: ")([^"]+)(")/,
   /(written for pr2video )(\S+?)([.:]\s)/,
-  /(npx -y pr2video@)([^`\s]+)(`)/,
+  /(npx -y pr2video@)([^`\s"]+)([`\s"])/g,
 ]
 
 async function json(url: URL) {
@@ -31,7 +31,14 @@ async function versions(): Promise<Record<string, string>> {
     ".claude-plugin/plugin.json": (await json(PLUGIN)).version,
   }
   SKILL_VERSIONS.forEach((pattern, i) => {
-    found[`skills/pr2video/SKILL.md (${i + 1})`] = skill.match(pattern)?.[2] ?? "(missing)"
+    const all = [...skill.matchAll(new RegExp(pattern.source, "g"))].map((m) => m[2] ?? "")
+    const distinct = [...new Set(all)]
+    found[`skills/pr2video/SKILL.md (${i + 1})`] =
+      distinct.length === 1
+        ? (distinct[0] ?? "(missing)")
+        : distinct.length
+          ? distinct.join(" / ")
+          : "(missing)"
   })
   return found
 }

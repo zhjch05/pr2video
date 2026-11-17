@@ -267,6 +267,8 @@ export function keepWritten(
       label: written.label ?? fresh.label,
       caption: written.caption ?? fresh.caption,
       zoom: written.zoom ?? fresh.zoom,
+      // Narration belongs to the caption, which is kept: so is its clip.
+      ...(written.audio ? { audio: written.audio, audioMs: written.audioMs ?? null } : {}),
     })
     kept.push(written.id)
   }
@@ -278,6 +280,7 @@ export function keepWritten(
       ...draft,
       title: old.title || draft.title,
       summary: old.summary ?? draft.summary,
+      ...(old.voice ? { voice: old.voice } : {}),
       scenes,
     },
     kept,

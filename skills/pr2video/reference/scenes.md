@@ -75,11 +75,14 @@ work as well as plain CSS.
 
 ## Focus and marks
 
-- `focus` is what the caption is about: zoomed towards in the tour. Focus the **row, card or section**
-  that holds the change, with `zoom: 1.5`, so its label and context stay readable. Zoom 2 only for a
-  control whose meaning is clear on its own. No focus: the tour zooms towards the marks, and the
-  recorder scrolls the first mark into view if it is off-screen. Something lower on the page
-  that the caption is about wants a focus, so it is centred.
+- `focus` is what the caption is about: the recorder scrolls it to the middle (no `scrollTo` step
+  needed) and the tour zooms towards it. Focus the **row, card or section** that holds the change,
+  with `zoom: 1.5`, so its label and context stay readable. Zoom 2 only for a control whose meaning
+  is clear on its own. A heading is a thin strip: to focus the panel under a heading, use the box
+  that holds it, e.g. `{ "css": "div:has(> :text-is(\"Pages\"))" }`.
+- No focus: the tour zooms towards the marks at the scene's `zoom` (the draft gives 2; set 1 in the
+  tour to show the whole screen), and the recorder scrolls the first mark into view if it is
+  off-screen. Something lower on the page that the caption is about wants a focus, so it is centred.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
@@ -87,6 +90,23 @@ work as well as plain CSS.
   one side. Give one only when it says something the screen does not, and check it on a still.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
+
+## Steps per scene
+
+A scene holds at most 10 actions (each click, fill, `scrollTo` or `wait` counts; checkpoints do
+not). A longer flow is two scenes, the second starting where the first ended.
+
+## Scenes that change data
+
+A scene that creates or deletes something (adds a record, sends a form) changes what the next
+scene, and the next recording of itself, finds. Keep the tour replayable:
+
+- Record a scene that creates data first, then the seeding that depends on it, as recorded setup
+  steps, then the scenes that show the result (`record --only <ids>` records some scenes and keeps
+  the others).
+- Better still, let the seeding create what the later scenes need through the app's API, so the
+  creating scene is the only one that depends on a fresh state; give what it creates a name the
+  seed does not use, so recording it again does not collide.
 
 ## Signing in
 

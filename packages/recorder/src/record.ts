@@ -80,12 +80,15 @@ function startRecording(appOrigin: string): void {
     inlineStylesheet: true,
     inlineImages: true,
     collectFonts: true,
-    recordCanvas: false,
+    // Charts and other canvases: a picture of each, twice a second while it
+    // changes, so the replay shows what the screenshot shows.
+    recordCanvas: true,
+    dataURLOptions: { type: "image/webp", quality: 0.7 },
     maskInputOptions: { password: true },
     // Input sampling stays "all": "last" records a field's value only on
     // `change` (when it loses focus), so text typed before a checkpoint
     // was missing from the replay.
-    sampling: { mousemove: 40, scroll: 120 },
+    sampling: { mousemove: 40, scroll: 120, canvas: 2 },
   })
   setInterval(() => w.__rrwebFlushNow?.(), 250)
   addEventListener("pagehide", () => w.__rrwebFlushNow?.(), true)
@@ -270,6 +273,10 @@ async function recordScene(
   const viewport = scene.viewport ?? file.viewport
   const context: BrowserContext = await browser.newContext({
     viewport,
+    // The app's Content-Security-Policy is for its users, not the recorder:
+    // a strict one blocks the worker rrweb pictures canvases with (charts
+    // replayed blank), and can block its other scripts.
+    bypassCSP: true,
     ...(storageState ? { storageState } : {}),
   })
   const events: Array<{ timestamp: number }> = []
