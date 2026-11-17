@@ -13,6 +13,7 @@ its player script.
 | mitt (inside rrweb) | Copyright (c) 2021 Jason Miller | the tour player |
 | base64-arraybuffer (inside rrweb) | Copyright (c) 2012 Niklas von Hertzen | the tour player |
 | zod | Copyright (c) 2025 Colin McDonnell | the CLI, the recorder and the tour player |
+| Octicons (the GitHub mark) | Copyright (c) 2025 GitHub Inc. | the tour page's footer and the MP4's watermark |
 | Feather icons (maximize, minimize; through Lucide) | Copyright (c) 2013-present Cole Bemis | the tour player's controls |
 | Lucide icons (ISC) | Copyright (c) 2026 Lucide Icons and Contributors | the tour player's controls |
 

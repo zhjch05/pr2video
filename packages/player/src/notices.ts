@@ -33,6 +33,11 @@ export const NOTICES: ReadonlyArray<{ name: string; copyright: string; in: strin
     in: "the CLI, the recorder and the tour player",
   },
   {
+    name: "Octicons (the GitHub mark)",
+    copyright: "Copyright (c) 2025 GitHub Inc.",
+    in: "the tour page's footer and the MP4's watermark",
+  },
+  {
     name: "Feather icons (maximize, minimize; through Lucide)",
     copyright: "Copyright (c) 2013-present Cole Bemis",
     in: "the tour player's controls",

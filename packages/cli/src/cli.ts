@@ -30,7 +30,7 @@ import {
 
 import { buildHtml } from "./assemble.ts"
 import { cliVersion, skillDir } from "./assets.ts"
-import { importBetterReview } from "./import.ts"
+import { importTourPage } from "./import.ts"
 import {
   probeCommand,
   RECORD_HELP,
@@ -69,7 +69,7 @@ Usage:
                                                 inside with black bars where its shape differs
   pr2video render <tour.json> --frame <ms,...> [--png <prefix>]
                                                 Single frames as PNGs, exactly as the video draws them
-  pr2video import <tour.html> -o <dir>          Import a tour downloaded from better-review
+  pr2video import <tour.html> -o <dir>          Import a tour exported as one HTML page (tour-data)
   pr2video browser install                      Install the Chromium build MP4 and stills use (once)
   pr2video --version                            This CLI's version
 
@@ -491,7 +491,7 @@ async function main() {
   if (command === "import") {
     const [htmlPath] = rest
     if (!htmlPath || !flags.output) fail("usage: pr2video import <tour.html> -o <dir>", flags.json)
-    const tour = await importBetterReview(htmlPath, flags.output)
+    const tour = await importTourPage(htmlPath, flags.output)
     const result = { ok: true, tour: join(flags.output, "tour.json"), scenes: tour.scenes.length }
     console.log(
       flags.json ? JSON.stringify(result, null, 2) : `${result.tour} (${result.scenes} scenes)`,

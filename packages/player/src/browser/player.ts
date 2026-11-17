@@ -28,7 +28,7 @@ import { Replayer } from "rrweb"
 
 import type { PlayerData } from "../data.ts"
 import { captionSide, easeTransform, type FrameState, frameAt, labelSpot } from "../frame.ts"
-import { type IconName, icon } from "./icons.ts"
+import { githubMark, type IconName, icon } from "./icons.ts"
 import { letAnimationsFinish, loaded, painted, pinRemovals, rescroll } from "./replay.ts"
 
 type Events = Array<{ timestamp: number; type?: number; data?: never }>
@@ -56,7 +56,11 @@ async function gunzipBase64(base64: string): Promise<string> {
   return new Response(stream).text()
 }
 
-/** `m:ss.t`, as better-review's player shows it. */
+/** Where pr2video lives: the tour page's footer and the MP4's watermark point there. */
+const REPO_URL = "https://github.com/zhjch05/pr2video"
+const REPO_NAME = "github.com/zhjch05/pr2video"
+
+/** `m:ss.t`: minutes, seconds and tenths. */
 function formatTime(ms: number): string {
   const total = Math.max(0, ms)
   const minutes = Math.floor(total / 60_000)
@@ -188,7 +192,16 @@ export class TourPlayer {
         element.preload = "auto"
         this.audio.set(scene.id, element)
       }
-    if (mode === "interactive") this.buildControls()
+    if (mode === "interactive") {
+      this.buildControls()
+      const footer = el("footer", "p2v-footer", this.root)
+      footer.innerHTML = `${githubMark()}<span>Made with <a href="${REPO_URL}" target="_blank" rel="noopener">pr2video</a>, open source on GitHub. If you like it, <a href="${REPO_URL}" target="_blank" rel="noopener">star the repo</a> ⭐</span>`
+    } else {
+      // Every MP4 frame and still says where it came from.
+      const mark = el("div", "p2v-watermark", frame)
+      mark.setAttribute("aria-hidden", "true")
+      mark.innerHTML = `${githubMark()}<span>${REPO_NAME}</span>`
+    }
     new ResizeObserver(() => this.layout()).observe(frame)
   }
 

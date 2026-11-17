@@ -1,7 +1,7 @@
 /**
- * Imports a tour downloaded from better-review (its "Download" on the Tour
- * tab: one HTML file with the tour, gzipped recordings and MP3 narration
- * inline) as a pr2video tour directory: `tour.json`, `recordings/`, `audio/`.
+ * Imports a tour exported as one HTML page (a `<script id="tour-data">` with
+ * the tour, gzipped recordings and MP3 narration inline) as a pr2video tour
+ * directory: `tour.json`, `recordings/`, `audio/`.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -61,10 +61,11 @@ async function durationMs(path: string): Promise<number | null> {
 
 const target = (t: ExportTarget) => ({ box: t.box, node: t.node ?? null })
 
-export async function importBetterReview(htmlPath: string, outDir: string): Promise<Tour> {
+export async function importTourPage(htmlPath: string, outDir: string): Promise<Tour> {
   const html = await readFile(htmlPath, "utf8")
   const match = html.match(/<script[^>]*id="tour-data"[^>]*>([\s\S]*?)<\/script>/)
-  if (!match?.[1]) throw new Error(`${htmlPath} is not a downloaded better-review tour`)
+  if (!match?.[1])
+    throw new Error(`${htmlPath} is not an exported tour page (no <script id="tour-data">)`)
   const data = JSON.parse(match[1]) as ExportData
   await mkdir(join(outDir, "recordings"), { recursive: true })
   await mkdir(join(outDir, "audio"), { recursive: true })

@@ -39,7 +39,7 @@ tool cannot enforce on someone else's model.
 - `@pr2video/recorder`: the scenes format and check, the recorder that runs inside the sandbox
   (bundled to one `record.mjs`; Playwright and rrweb come from the image), and `tour draft`.
 - `@pr2video/sandbox`: the Docker sandbox, its journal, replay and saved data.
-- `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (better-review tour downloads).
+- `pr2video`: the CLI, including `render` (HTML, MP4) and `import` (tours exported as one HTML page).
   The only published package: its build bundles the five others into it.
 - `skills/pr2video/`: the agent skill and its references, for any agent that reads `SKILL.md`.
 - `.claude-plugin/` and `commands/`: the repository root is also the Claude Code plugin, adding the

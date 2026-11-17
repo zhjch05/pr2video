@@ -1,5 +1,4 @@
-/* The colours, type and controls of better-review's tour player, so a tour
-   looks the same exported as it does in the app. */
+/* The player's colours, type and controls, in light and dark. */
 :root {
   --p2v-bg: #ffffff;
   --p2v-fg: #1f2328;
@@ -87,6 +86,7 @@ body {
 
 /* Captions size to the frame, so a narrow phone scene in a wide tour keeps readable captions. */
 .p2v-frame {
+  position: relative;
   container-type: size;
   display: flex;
   justify-content: center;
@@ -447,6 +447,57 @@ body {
 
 .p2v-scene-caption {
   min-width: 0;
+}
+
+.p2v-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--p2v-border);
+  color: var(--p2v-muted);
+  font-size: 13px;
+}
+
+.p2v-footer svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.p2v-footer a {
+  color: var(--p2v-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The MP4's watermark: small, in the corner, over everything the frame shows. */
+.p2v-watermark {
+  position: absolute;
+  right: 1.2cqw;
+  bottom: 1.2cqw;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.35em 0.75em;
+  border-radius: 9999px;
+  background: rgb(13 17 23 / 0.62);
+  color: rgb(255 255 255 / 0.95);
+  font:
+    600 clamp(10px, 1.05cqw, 22px) / 1.2 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+  pointer-events: none;
+}
+
+.p2v-watermark svg {
+  width: 1.25em;
+  height: 1.25em;
 }
 
 /* Render mode: the stage is the whole window, nothing else on the page. */
