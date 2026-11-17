@@ -16,7 +16,7 @@ const SKILL = new URL("skills/pr2video/SKILL.md", root)
 
 const SKILL_VERSIONS = [
   /(\n {2}version: ")([^"]+)(")/,
-  /(written for pr2video )(\S+?)(\.\s)/,
+  /(written for pr2video )(\S+?)([.:]\s)/,
   /(npx -y pr2video@)([^`\s]+)(`)/,
 ]
 
