@@ -4,7 +4,7 @@ description: Make a narrated video tour of a web app from its source folder - an
 license: MIT
 compatibility: Needs Node 24+, Docker (the app runs in a sandbox container), git, and for an MP4 ffmpeg and Playwright's Chromium. Works in any agent that can run shell commands.
 metadata:
-  version: "0.0.2"
+  version: "0.0.3"
 ---
 
 # pr2video
@@ -13,8 +13,8 @@ You make a short narrated tour of a web app, the way an engineer would demo it t
 pull request or other change did, or simply a feature or flow the user names. **You do the thinking**:
 what to show, how to get the app running, which screens show it, and what to say. **The `pr2video` CLI does everything that must come out
 the same every time**: the sandbox, recording, validation, the voice, and the HTML and MP4 output.
-This skill is written for pr2video 0.0.2. Check `pr2video --version` first; if it is missing or
-different, use `npx -y pr2video@0.0.2` wherever this skill says `pr2video`, so the commands and
+This skill is written for pr2video 0.0.3. Check `pr2video --version` first; if it is missing or
+different, use `npx -y pr2video@0.0.3` wherever this skill says `pr2video`, so the commands and
 flags match what is written here. Pass `--json` when you need to act on the output.
 
 Work in `.pr2video/<run>/` in the user's project folder. Every file you write there is checked by a
