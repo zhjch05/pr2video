@@ -182,6 +182,13 @@ export function zoomThatFits(
 export function tourWarnings(tour: Tour): Array<TourProblem> {
   const warnings: Array<TourProblem> = []
   for (const [i, scene] of tour.scenes.entries()) {
+    // Two outlines and no words: the viewer cannot tell which one the caption means.
+    const unlabelled = scene.markers.filter((m) => !m.label?.trim()).length
+    if (scene.markers.length >= 2 && unlabelled)
+      warnings.push({
+        path: `scenes.${i}.markers`,
+        message: `${unlabelled} of ${scene.markers.length} marks have no label: with two or more, give each a few words (in scenes.json, then draft again)`,
+      })
     if (!scene.focus || scene.zoom <= 1) continue
     const { width, height } = scene.focus.box
     // Zooming less than asked is what the player does anyway; only a zoom that

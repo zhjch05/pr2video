@@ -111,8 +111,11 @@ full URL (`http://localhost:3000/settings`), with no role.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
-- A mark's `label` goes beside its outline, where it covers the least text: above, below, or to
-  one side. Give one only when it says something the screen does not, and check it on a still.
+- A mark's `label` is a few words beside its outline ("New filter", "Was 3, now 5"). Give every
+  mark a label when a checkpoint has two or more, so the viewer can tell which outline the caption
+  means; with one mark, `null`. Write labels here, in `scenes.json`: drafting the tour again takes
+  marks fresh from this file. The player places each label where it covers the least text; check
+  them on a still.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
 

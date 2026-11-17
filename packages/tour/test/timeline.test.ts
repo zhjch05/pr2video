@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { fitZoom, type TourScene, tourProblems } from "../src/schema.ts"
+import { fitZoom, type TourScene, tourProblems, tourWarnings } from "../src/schema.ts"
 import {
   APPROACH_MAX_MS,
   FOCUS_MS,
@@ -183,5 +183,34 @@ describe("fitZoom", () => {
   })
   it("stays at 1 when the focus could barely be magnified", () => {
     expect(fitZoom({ width: 1000, height: 300 }, view, 1.5)).toBe(1)
+  })
+})
+
+describe("tourWarnings", () => {
+  const scene = (labels: Array<string | null>) =>
+    ({
+      id: "s",
+      label: "S1",
+      events: "e.json",
+      viewport: { width: 1280, height: 800 },
+      startMs: 0,
+      endMs: 2_000,
+      atMs: 1_000,
+      caption: "A caption.",
+      focus: null,
+      zoom: 1,
+      markers: labels.map((label) => ({
+        box: { x: 0, y: 0, width: 10, height: 10 },
+        label,
+        tone: "added",
+      })),
+    }) as unknown as TourScene
+  const tour = (labels: Array<string | null>) =>
+    ({ version: 1, title: "T", summary: "", scenes: [scene(labels)] }) as never
+
+  it("asks for labels when a scene has two or more marks", () => {
+    expect(tourWarnings(tour(["New", null])).map((w) => w.path)).toEqual(["scenes.0.markers"])
+    expect(tourWarnings(tour(["New", "Old"]))).toEqual([])
+    expect(tourWarnings(tour([null]))).toEqual([])
   })
 })
