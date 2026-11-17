@@ -12,6 +12,10 @@ import { screenshotMoments, tourProblems, tourSchema } from "@pr2video/tour"
 
 import { type Asset, assetPath } from "./assets.ts"
 
+/** A font the recorder inlined (or the app served inline): \`data:font/woff2;base64,...\`. */
+const FONT_DATA_URL =
+  /data:(?:font\/[\w.+-]+|application\/(?:x-)?font-[\w.+-]+|application\/vnd\.ms-fontobject);base64,[A-Za-z0-9+/=]+/g
+
 const AUDIO_TYPES: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
@@ -45,10 +49,22 @@ export async function playerData(tourPath: string): Promise<PlayerData> {
   const events: PlayerData["events"] = {}
   const shots: PlayerData["shots"] = {}
   const audio: PlayerData["audio"] = {}
+  const fonts: Array<string> = []
+  const fontIndex = new Map<string, number>()
+  // Each font once for the whole tour; a recording keeps a reference to it.
+  const shareFonts = (json: string) =>
+    json.replace(FONT_DATA_URL, (url) => {
+      let n = fontIndex.get(url)
+      if (n === undefined) {
+        n = fonts.push(url) - 1
+        fontIndex.set(url, n)
+      }
+      return `p2v-font:${n}`
+    })
   for (const scene of tour.scenes) {
     if (!(scene.events in events)) {
       const recording = await readEvents(join(root, scene.events))
-      events[scene.events] = gzipSync(recording.json).toString("base64")
+      events[scene.events] = gzipSync(shareFonts(recording.json)).toString("base64")
       shots[scene.events] = screenshotMoments(recording.events)
     }
     if (scene.audio && !(scene.audio in audio)) {
@@ -57,7 +73,7 @@ export async function playerData(tourPath: string): Promise<PlayerData> {
         `data:${type};base64,${(await readFile(join(root, scene.audio))).toString("base64")}`
     }
   }
-  return { tour, events, audio, shots }
+  return { tour, events, audio, shots, ...(fonts.length ? { fonts } : {}) }
 }
 
 /** The player's bundled script and styles, built by `@pr2video/player`. */

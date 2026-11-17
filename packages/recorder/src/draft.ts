@@ -11,7 +11,7 @@
 import { readFile } from "node:fs/promises"
 import { join, relative } from "node:path"
 
-import type { Tour, TourScene } from "@pr2video/tour"
+import { type Tour, type TourScene, zoomThatFits } from "@pr2video/tour"
 
 import { decodePng, pixelDifference } from "./png.ts"
 import { type SceneResult, sceneResultSchema } from "./result.ts"
@@ -30,6 +30,41 @@ export type DraftOptions = {
    * head's, when there is nothing before to show.
    */
   base?: string | undefined
+  /**
+   * With `base`, only these checkpoints get a "before": head tour scene ids
+   * (`<scene>-<checkpoint>`), checkpoint names or scene ids. All, when unset.
+   */
+  befores?: ReadonlySet<string> | undefined
+}
+
+type Box = { x: number; y: number; width: number; height: number }
+
+/**
+ * The zoom a draft gives a checkpoint the scenes file left to it: 1.5 towards
+ * a focus, 2 towards marks with no focus, each only as far as what it zooms
+ * towards still fits (a wide section stays at 1 instead of a warning later).
+ */
+function draftZoom(
+  focus: { box: Box } | null,
+  marks: ReadonlyArray<{ box: Box }>,
+  viewport: { width: number; height: number },
+): 1 | 1.5 | 2 {
+  if (focus) return zoomThatFits(focus.box, viewport, 1.5)
+  if (!marks.length) return 1
+  const x = Math.min(...marks.map((m) => m.box.x))
+  const y = Math.min(...marks.map((m) => m.box.y))
+  const right = Math.max(...marks.map((m) => m.box.x + m.box.width))
+  const bottom = Math.max(...marks.map((m) => m.box.y + m.box.height))
+  return zoomThatFits({ width: right - x, height: bottom - y }, viewport, 2)
+}
+
+/** The path a checkpoint was on, to tell a base that landed elsewhere (a redirect, a 404). */
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/\/$/, "")
+  } catch {
+    return url
+  }
 }
 
 export type DraftResult = { tour: Tour; skipped: Array<{ scene: string; reason: string }> }
@@ -91,6 +126,8 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
       before && options.base
         ? relative(options.tourDir, join(options.base, scene.id, before.events))
         : null
+    /** The base screenshot the last "before" showed: two checkpoints on one base screen get one. */
+    let lastBefore: string | null = null
     for (const [i, cp] of result.checkpoints.entries()) {
       const spec = specs.get(cp.checkpoint)
       const was = before?.checkpoints.findIndex((b) => b.checkpoint === cp.checkpoint) ?? -1
@@ -102,12 +139,40 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
           join(options.recordings, scene.id, cp.screenshot),
           join(options.base, scene.id, baseCp.screenshot),
         ))
+      const wanted =
+        !options.befores ||
+        options.befores.has(`${scene.id}-${cp.checkpoint}`) ||
+        options.befores.has(cp.checkpoint) ||
+        options.befores.has(scene.id)
+      const elsewhere = baseCp !== undefined && pathOf(baseCp.url) !== pathOf(cp.url)
       if (same)
         skipped.push({
           scene: `${scene.id}-${cp.checkpoint}-before`,
           reason: "the base looks the same at this checkpoint",
         })
-      if (before && baseCp && baseEvents && !same) {
+      else if (elsewhere)
+        skipped.push({
+          scene: `${scene.id}-${cp.checkpoint}-before`,
+          reason: `the base ended on ${pathOf(baseCp.url) || "/"}, not ${pathOf(cp.url) || "/"} (a redirect or a page it does not have)`,
+        })
+      else if (baseCp && !wanted)
+        skipped.push({ scene: `${scene.id}-${cp.checkpoint}-before`, reason: "not in --before" })
+      const baseShot =
+        baseCp && options.base ? join(options.base, scene.id, baseCp.screenshot) : null
+      const repeat =
+        !same &&
+        !elsewhere &&
+        wanted &&
+        baseShot !== null &&
+        lastBefore !== null &&
+        (await looksSame(lastBefore, baseShot))
+      if (repeat)
+        skipped.push({
+          scene: `${scene.id}-${cp.checkpoint}-before`,
+          reason: "the base shows the same screen as the previous before",
+        })
+      if (before && baseCp && baseEvents && !same && !elsewhere && wanted && !repeat) {
+        lastBefore = baseShot
         const previous = before.checkpoints[was - 1]
         const next = before.checkpoints[was + 1]
         scenes.push({
@@ -123,7 +188,7 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
           shotMs: baseCp.shotMs,
           caption: `${BEFORE_CAPTION} (head: ${spec?.caption ?? scene.title})`,
           focus: baseCp.focus,
-          zoom: spec?.zoom ?? (baseCp.focus ? 1.5 : baseCp.marks.length ? 2 : 1),
+          zoom: spec?.zoom ?? draftZoom(baseCp.focus, baseCp.marks, before.viewport),
           markers: baseCp.marks.map((mark) => ({
             box: mark.box,
             node: mark.node,
@@ -147,7 +212,7 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
         shotMs: cp.shotMs,
         caption: spec?.caption ?? scene.title,
         focus: cp.focus,
-        zoom: spec?.zoom ?? (cp.focus ? 1.5 : cp.marks.length ? 2 : 1),
+        zoom: spec?.zoom ?? draftZoom(cp.focus, cp.marks, result.viewport),
         markers: cp.marks.map((mark) => ({
           box: mark.box,
           node: mark.node,

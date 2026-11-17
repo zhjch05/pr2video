@@ -828,8 +828,9 @@ export async function logs(record: SandboxRecord, name: string, lines = 100): Pr
 export type ReplayStep = { entry: JournalEntry; ok: boolean; detail: string; log?: string }
 
 /**
- * Runs the journal's recorded steps again: every background process is
- * stopped first, and the replay stops at the first step that fails. On the
+ * Runs the journal's recorded steps again: every background process and
+ * every container the sandbox's Docker runs is stopped first (their volumes
+ * stay), and the replay stops at the first step that fails. On the
  * base (the default) each step is moved from `/work/head` to `/work/base`; on
  * the head it runs as recorded - the way back after recording the base.
  */
@@ -854,6 +855,14 @@ export async function replay(
     throw new Error("the journal is empty: record setup steps with `--record` first")
   for (const process of await processes(record))
     if (process.running) await stop(record, process.name)
+  // The services the other side started (a database from docker compose):
+  // the steps start them again, and a fixed container_name would clash.
+  // Their volumes stay, so saved and seeded data is not lost.
+  await inside(
+    record.container,
+    'ids=$(docker ps -aq); [ -z "$ids" ] || docker rm -f $ids >/dev/null; docker network prune -f >/dev/null 2>&1; true',
+    { timeoutMs: 120_000 },
+  )
   const steps: Array<ReplayStep> = []
   for (const [index, original] of journal.entries()) {
     const entry = side === "base" && base ? rebase(original, record.head.dir, base.dir) : original
@@ -911,15 +920,27 @@ export async function copyIn(
   options: { record?: boolean | undefined } = {},
 ): Promise<void> {
   if (!to.startsWith("/")) throw new Error(`the sandbox path must be absolute (got "${to}")`)
+  // With --record the run keeps its own copy under files/: a source there (or
+  // one holding it) would be copied into itself, after the sandbox already
+  // had it and before the journal did. Refuse before copying anything.
+  const kept = resolve(runDir(record.repo, record.run), "files")
+  const source = resolve(from)
+  if (
+    options.record &&
+    (source === kept || kept.startsWith(`${source}/`) || source.startsWith(`${kept}/`))
+  )
+    throw new Error(
+      `${from} is or holds .pr2video/${record.run}/files/, where the run keeps its own copies: put your files elsewhere (e.g. .pr2video/${record.run}/mine/)`,
+    )
   const parent = to.endsWith("/") ? to : to.slice(0, to.lastIndexOf("/")) || "/"
   await inside(record.container, `mkdir -p '${parent.replace(/'/g, "")}'`)
   await dockerOrThrow(["cp", from, `${record.container}:${to}`])
   if (!options.record) return
-  const kept = join("files", `${Date.now()}-${basename(from.replace(/\/+$/, ""))}`)
-  await cp(from, join(runDir(record.repo, record.run), kept), { recursive: true })
+  const copy = join("files", `${Date.now()}-${basename(from.replace(/\/+$/, ""))}`)
+  await cp(from, join(runDir(record.repo, record.run), copy), { recursive: true })
   await appendJournal(record.repo, record.run, {
     kind: "copy",
-    from: kept,
+    from: copy,
     to,
     at: new Date().toISOString(),
   })

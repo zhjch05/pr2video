@@ -216,6 +216,19 @@ export function isVoiceId(value: string): value is VoiceId {
 }
 
 /** The first voice that works here, in order of quality: kokoro, say, piper, espeak, else none. */
+/** Who speaks for `voice` with these options: the named speaker, else the voice's own default. */
+export function speakerOf(voice: VoiceId, options?: VoiceOptions): string | null {
+  if (voice === "none") return null
+  if (options?.speaker) return options.speaker
+  if (voice === "kokoro") return KOKORO_DEFAULT_SPEAKER
+  if (voice === "espeak") return "en-us"
+  if (voice === "piper") {
+    const model = options?.model ?? process.env.PIPER_MODEL
+    return model ? (model.split("/").pop() ?? model).replace(/\.onnx$/, "") : null
+  }
+  return "the system's default voice"
+}
+
 export async function defaultVoice(options?: VoiceOptions): Promise<VoiceId> {
   for (const id of VOICE_IDS) if ((await VOICES[id].available(options)).ok) return id
   return "none"

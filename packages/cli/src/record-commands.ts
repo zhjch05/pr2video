@@ -19,17 +19,42 @@ export type RecordFlags = {
   only?: string | undefined
   output?: string | undefined
   compare?: boolean | undefined
+  before?: string | undefined
   fresh?: boolean | undefined
 }
+
+/** `pr2video scenes --help`: what a scene's steps can be. */
+export const SCENES_HELP = `Scene steps (scenes.json; at most 10 actions per scene, checkpoints not counted):
+  { "goto": "/path" }                           Open a page (relative to baseUrl)
+  { "click": <locator> }                         Click
+  { "hover": <locator> }                         Hover
+  { "fill": <locator>, "value": "text" }         Type into a field (shown as typed)
+  { "select": <locator>, "value": "option" }     Pick an option
+  { "check": <locator> } / { "uncheck": <locator> }
+  { "press": "Enter", "on": <locator>, "times": 8 }
+                                                Press a key (on an element, or the page); times repeats it
+  { "waitFor": <locator> }                       Wait until it shows
+  { "wait": 600 }                                Wait n ms (up to 10000)
+  { "scrollTo": <locator> }                      Scroll it to the middle (a checkpoint's focus does this itself)
+  { "checkpoint": "id", "caption": "...", "focus": <locator>, "zoom": 1.5,
+    "marks": [{ "locator": <locator>, "tone": "added|removed|changed|note", "label": null }] }
+                                                Stop here: screenshot, focus, marks, caption
+
+Locators, exactly one of:
+  { "role": "button", "name": "Save" }  { "label": "Email" }  { "text": "Total" }
+  { "placeholder": "Search" }  { "testId": "cart" }  { "css": "div:has(> h2)" }
+  plus "exact": true (the whole name or text, not a part) and "nth": 0 (one of several)`
 
 export const RECORD_HELP = `Recording:
   pr2video scenes check [<scenes.json>] [--json]  Validate a scenes file (default .pr2video/<run>/scenes.json)
   pr2video record [--side head|base] [--scenes <file>] [--only <id,id>]
                                                 Record the scenes in the sandbox's browser
-  pr2video tour draft [--compare] [--fresh] [--scenes <file>] [-o <tour.json>]
+  pr2video tour draft [--compare | --before <id,id>] [--fresh] [--scenes <file>] [-o <tour.json>]
                                                 A first tour from the head's recordings; --compare puts
                                                 each checkpoint's base recording before it ("before")
-                                                where its screenshot differs from the head's.
+                                                where its screenshot differs from the head's; --before
+                                                does that only for the checkpoints named (scene ids,
+                                                checkpoint names, or <scene>-<checkpoint>).
                                                 Drafting over an existing tour keeps its scenes, order,
                                                 titles, labels, captions and zooms, and takes recordings,
                                                 timings, focus and marks fresh; --fresh starts over`
@@ -82,6 +107,21 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   if (problems.length) {
     const message = problems.map((p) => `${p.path}: ${p.message}`).join("\n")
     throw new Error(`the scenes file has problems; fix them first:\n${message}`)
+  }
+  // A server that is not up (a replay that failed, a dev server that died)
+  // would fail every scene one timeout at a time: say so at once.
+  const baseUrl = (input as { baseUrl?: string }).baseUrl
+  if (baseUrl) {
+    const probe = await exec(
+      record,
+      `curl -s -o /dev/null -m 10 -w '%{http_code}' ${JSON.stringify(baseUrl)} || true`,
+      { cwd: INSIDE },
+    )
+    const code = probe.stdout.trim()
+    if (!code || code === "000")
+      throw new Error(
+        `nothing answers at ${baseUrl} in the sandbox: start the app first (\`pr2video sandbox ps\` shows what is running; after a replay, check that it succeeded)`,
+      )
   }
   const recorder = await assetPath("record.mjs")
   try {
@@ -198,7 +238,15 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
     scenes,
     recordings: join(dir, "recordings", "head"),
     tourDir: dirname(out),
-    base: flags.compare ? join(dir, "recordings", "base") : undefined,
+    base: flags.compare || flags.before ? join(dir, "recordings", "base") : undefined,
+    befores: flags.before
+      ? new Set(
+          flags.before
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean),
+        )
+      : undefined,
   })
   if (!tour.scenes.length)
     throw new Error("nothing was recorded on the head: run `pr2video record` first")
@@ -281,6 +329,7 @@ export function keepWritten(
       title: old.title || draft.title,
       summary: old.summary ?? draft.summary,
       ...(old.voice ? { voice: old.voice } : {}),
+      ...(old.speaker ? { speaker: old.speaker } : {}),
       scenes,
     },
     kept,

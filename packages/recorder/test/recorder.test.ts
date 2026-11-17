@@ -145,6 +145,58 @@ describe("draftTour", () => {
     ])
   })
 
+  it("with --before, makes a before only for the checkpoints named", async () => {
+    const { tour, skipped } = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: `${fixtures}head`,
+      tourDir: fixtures,
+      base: `${fixtures}base`,
+      befores: new Set(["some-other-checkpoint"]),
+    })
+    expect(tour.scenes.map((s) => s.id)).toEqual(["dark-mode-switch", "dark-mode-on"])
+    expect(skipped).toEqual([{ scene: "dark-mode-switch-before", reason: "not in --before" }])
+    const named = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: `${fixtures}head`,
+      tourDir: fixtures,
+      base: `${fixtures}base`,
+      befores: new Set(["dark-mode-switch"]),
+    })
+    expect(named.tour.scenes[0]?.id).toBe("dark-mode-switch-before")
+  })
+
+  it("gives no before when the base ended on another page", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-draft-"))
+    await cp(fixtures, dir, { recursive: true })
+    const path = join(dir, "base/dark-mode/result.json")
+    const base = JSON.parse(await readFile(path, "utf8"))
+    base.checkpoints[0].url = "http://localhost:4173/home.html"
+    await writeFile(path, JSON.stringify(base))
+    const { tour, skipped } = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: join(dir, "head"),
+      tourDir: dir,
+      base: join(dir, "base"),
+    })
+    expect(tour.scenes.map((s) => s.id)).toEqual(["dark-mode-switch", "dark-mode-on"])
+    expect(skipped[0]?.reason).toMatch(/^the base ended on \/home.html, not \/settings.html/)
+  })
+
+  it("zooms only as far as the marks still fit", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-draft-"))
+    await cp(fixtures, dir, { recursive: true })
+    const path = join(dir, "head/dark-mode/result.json")
+    const head = JSON.parse(await readFile(path, "utf8"))
+    head.checkpoints[1].marks[0].box = { x: 40, y: 100, width: 1100, height: 60 }
+    await writeFile(path, JSON.stringify(head))
+    const { tour } = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: join(dir, "head"),
+      tourDir: dir,
+    })
+    expect(tour.scenes[1]?.zoom).toBe(1)
+  })
+
   it("leaves out a scene that was never recorded", async () => {
     const file = scenesFileSchema.parse(await scenesFile())
     const [first] = file.scenes

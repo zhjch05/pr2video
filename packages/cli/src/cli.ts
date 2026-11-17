@@ -35,6 +35,7 @@ import {
   RECORD_HELP,
   type RecordFlags,
   recordCommand,
+  SCENES_HELP,
   scenesCheck,
   tourDraft,
 } from "./record-commands.ts"
@@ -183,6 +184,7 @@ async function main() {
       "no-base": { type: "boolean" },
       from: { type: "string" },
       folder: { type: "boolean" },
+      all: { type: "boolean" },
       data: { type: "boolean" },
       port: { type: "string" },
       tail: { type: "string" },
@@ -192,6 +194,7 @@ async function main() {
       frame: { type: "string" },
       png: { type: "string" },
       compare: { type: "boolean" },
+      before: { type: "string" },
       fresh: { type: "boolean" },
       fps: { type: "string" },
       workers: { type: "string" },
@@ -206,7 +209,13 @@ async function main() {
   const options: VoiceOptions = { speaker: flags.speaker, model: flags.model }
 
   if (flags.help && (command === "sandbox" || command === "record" || command === "scenes")) {
-    console.log(command === "sandbox" ? SANDBOX_HELP : RECORD_HELP)
+    console.log(
+      command === "sandbox"
+        ? SANDBOX_HELP
+        : command === "scenes"
+          ? `${RECORD_HELP}\n\n${SCENES_HELP}`
+          : RECORD_HELP,
+    )
     return
   }
   if (flags.version || command === "version") {
@@ -271,13 +280,23 @@ async function main() {
     if (flags.json)
       console.log(
         JSON.stringify(
-          { ok: true, voice, spoken: result.spoken, reused: result.reused, terms },
+          {
+            ok: true,
+            voice,
+            speaker: result.tour.speaker ?? null,
+            spoken: result.spoken,
+            reused: result.reused,
+            terms,
+          },
           null,
           2,
         ),
       )
     else {
-      console.log(`${voice}: ${result.spoken} spoken, ${result.reused} reused`)
+      const speaker = result.tour.speaker
+      console.log(
+        `${voice}${speaker ? ` (${speaker})` : ""}: ${result.spoken} spoken, ${result.reused} reused`,
+      )
       if (terms) console.log(`note: ${terms}`)
     }
     return

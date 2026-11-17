@@ -46,6 +46,7 @@ marks what changed, and holds while the caption is read aloud.
       "events": "recordings/head/cart/events.json", // rrweb events, relative to tour.json
       "viewport": { "width": 1280, "height": 800 },
       "startMs": 0, "endMs": 9000, "atMs": 6200,    // the window and the checkpoint, in recording ms
+                                                    // (the scene plays to atMs and holds; endMs only bounds it)
       "shotMs": 6350,                               // when the checkpoint's screenshot was taken, if known
       "caption": "The cart now groups items under each supplier, with its own subtotal.",
       "focus": { "box": { "x": 320, "y": 180, "width": 640, "height": 420 }, "node": 412 },
@@ -61,7 +62,8 @@ marks what changed, and holds while the caption is read aloud.
 `pr2video tour draft` writes all of this from the head's recordings; you edit captions, order and
 zoom. Focus and marks come from `scenes.json`: change them there, since drafting again (after
 re-recording) keeps what you wrote in the tour but takes focus and marks fresh. `pr2video narrate` fills in each scene's `audio` and `audioMs` and the tour's `voice`; do not write
-them yourself. Drafting again keeps the narration of every caption it keeps.
+them yourself. Drafting again keeps the narration of every caption it keeps, and leaves out a scene you deleted
+from the tour (`--fresh` brings everything back).
 `pr2video tour check` also checks every recording and clip it names still exists: after
 re-recording, draft again rather than keeping old timings.
 

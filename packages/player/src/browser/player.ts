@@ -169,7 +169,11 @@ export class TourPlayer {
     const encoded = this.data.events[path]
     const loading = (async () => {
       if (!encoded) throw new Error(`the tour has no recording ${path}`)
-      const parsed = JSON.parse(await gunzipBase64(encoded)) as Events
+      const fonts = this.data.fonts ?? []
+      const text = await gunzipBase64(encoded)
+      const parsed = JSON.parse(
+        fonts.length ? text.replace(/p2v-font:(\d+)/g, (ref, n) => fonts[Number(n)] ?? ref) : text,
+      ) as Events
       if (!Array.isArray(parsed) || !parsed.length) throw new Error(`recording ${path} is empty`)
       return pinRemovals(parsed)
     })()
@@ -199,6 +203,12 @@ export class TourPlayer {
       // A seek through rrweb 2.1.6's virtual DOM loses the changes after a navigation's full snapshot.
       useVirtualDom: false,
       triggerFocus: false,
+      // The replay runs no scripts, so a canvas shows its fallback content
+      // ("Drawing canvas") as well as the picture drawn behind it: hide that.
+      insertStyleRules: [
+        "canvas > * { display: none !important; }",
+        "canvas { color: transparent !important; font-size: 0 !important; }",
+      ],
     })
     // Draw recorded canvas pictures (charts). rrweb gates this behind
     // UNSAFE_replayCanvas, which as a constructor option also lets scripts run
@@ -490,7 +500,59 @@ export class TourPlayer {
     this.overlay(state)
     this.showCanvases()
     this.tidyImages()
+    this.inlineSprites()
     return state
+  }
+
+  private spriteFiles: { events: string | null; files: Array<[string, string]> } = {
+    events: null,
+    files: [],
+  }
+
+  /**
+   * Icons drawn from an SVG sprite on the app (`<use href="/icons.svg#plus">`)
+   * cannot reach it in the replay: the recorder kept the sprite files (a
+   * custom event), whose symbols go into the replay's page once, renamed, and
+   * each such `<use>` points at its copy.
+   */
+  private inlineSprites() {
+    const { replayer, recorded, events } = this.current
+    if (this.spriteFiles.events !== events) {
+      const found = (
+        recorded as Array<{ type?: number; data?: { tag?: string; payload?: unknown } }>
+      ).find((e) => e.type === 5 && e.data?.tag === "pr2video-sprites")
+      const payload = (found?.data?.payload ?? {}) as Record<string, string>
+      this.spriteFiles = { events, files: Object.entries(payload) }
+    }
+    const files = this.spriteFiles.files
+    const doc = replayer?.iframe.contentDocument
+    if (!files.length || !doc?.body) return
+    if (!doc.getElementById("p2v-sprites")) {
+      const svg = "http://www.w3.org/2000/svg"
+      const holder = doc.createElementNS(svg, "svg")
+      holder.id = "p2v-sprites"
+      holder.setAttribute("aria-hidden", "true")
+      holder.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden")
+      for (const [n, [, text]] of files.entries()) {
+        const sprite = new DOMParser().parseFromString(text, "image/svg+xml").documentElement
+        for (const element of Array.from(sprite.querySelectorAll("[id]")))
+          element.id = `p2v${n}-${element.id}`
+        for (const child of Array.from(sprite.childNodes))
+          holder.append(doc.importNode(child, true))
+      }
+      doc.body.append(holder)
+    }
+    for (const use of Array.from(doc.querySelectorAll("use"))) {
+      for (const attr of ["href", "xlink:href"]) {
+        const value = use.getAttribute(attr)
+        const hash = value?.indexOf("#") ?? -1
+        if (!value || hash <= 0) continue
+        const n = files.findIndex(([url]) => url === value.slice(0, hash))
+        if (n < 0) continue
+        use.removeAttribute(attr)
+        use.setAttribute("href", `#p2v${n}-${value.slice(hash + 1)}`)
+      }
+    }
   }
 
   /**
@@ -522,8 +584,11 @@ export class TourPlayer {
    * scripting shows its fallback content, not its drawing (HTML spec). So
    * each recorded canvas picture is shown as the canvas's own background.
    */
-  private showCanvases() {
-    if (this.canvasesChangedAt === null || picturesInFlight > 0) return
+  /** Returns whether any canvas showed something new (or pictures are still on their way). */
+  private showCanvases(): boolean {
+    if (this.canvasesChangedAt === null) return false
+    if (picturesInFlight > 0) return true
+    let changed = false
     const doc = this.current.replayer?.iframe.contentDocument
     for (const canvas of Array.from(doc?.querySelectorAll("canvas") ?? [])) {
       let url: string
@@ -533,6 +598,7 @@ export class TourPlayer {
         continue
       }
       if (this.canvasShown.get(canvas) === url) continue
+      changed = true
       this.canvasShown.set(canvas, url)
       canvas.style.backgroundImage = `url("${url}")`
       canvas.style.backgroundSize = "100% 100%"
@@ -540,15 +606,22 @@ export class TourPlayer {
     }
     // A picture drawn from an image arrives a moment after its event: keep looking briefly.
     if (performance.now() - this.canvasesChangedAt > 1_000) this.canvasesChangedAt = null
+    return changed
   }
 
   /** Render mode: draw the frame at `t` and resolve once it is painted. */
   async seek(t: number): Promise<void> {
     await this.draw(t, true)
     await canvasPicturesDrawn()
-    // The picture is drawn just after its bitmap resolves: then show it.
+    // The picture is drawn just after its bitmap resolves: then show it. A
+    // page snapshot draws its canvases from images that load a moment later:
+    // while that is recent, keep showing until the canvases stop changing.
     await new Promise((done) => setTimeout(done, 0))
     this.showCanvases()
+    for (let i = 0, quiet = 0; i < 24 && quiet < 4 && this.canvasesChangedAt !== null; i++) {
+      await new Promise((done) => setTimeout(done, 25))
+      quiet = this.showCanvases() ? 0 : quiet + 1
+    }
     await painted()
   }
 

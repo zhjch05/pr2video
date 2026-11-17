@@ -68,7 +68,9 @@ production build. A failed sign-in leaves `recordings/<side>/.auth-<role>-stoppe
 ## Locators
 
 Exactly one of: `role` (+ optional `name`), `label`, `text`, `placeholder`, `testId`, `css`. Add
-`exact: true` for an exact name or text, and `nth` to pick one of several. Prefer role and name, as
+`exact: true` for an exact name or text, and `nth` to pick one of several. Without `exact`, `name`
+and `text` match a part: `{ role: "button", name: "Avery Chen" }` also matches "Avery Chen's org",
+and the first match on the page wins (`record` prints a note when a locator matched several). Prefer role and name, as
 a person would describe it; read the component's code for the accessible name. Use `css` only when
 nothing else names it: it is Playwright's selector engine, so `:has-text("Total")` and `:has(...)`
 work as well as plain CSS.
@@ -83,6 +85,10 @@ work as well as plain CSS.
 - No focus: the tour zooms towards the marks at the scene's `zoom` (the draft gives 2; set 1 in the
   tour to show the whole screen), and the recorder scrolls the first mark into view if it is
   off-screen. Something lower on the page that the caption is about wants a focus, so it is centred.
+- After recording, read each checkpoint's `notes` in `result.json` (and the `note:` lines `record`
+  prints): a locator that matched several elements (the first was used) or a box off-screen puts
+  a focus or mark on the wrong thing. On the head, a checkpoint with marks, no focus and none of
+  its marks on the page stops the scene: it is the wrong page.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
@@ -91,16 +97,26 @@ work as well as plain CSS.
 - Captions are the tour's first draft: say what the viewer sees and why it matters, in one or two
   plain sentences (see tour.md).
 
+## Menus, popovers and dialogs
+
+The recorder waits up to 2s for opening animations to finish before it measures a checkpoint, so
+an outline lands where the menu settled. A menu that animates for longer wants a `{ "wait": 600 }`
+step before its checkpoint.
+
 ## Steps per scene
 
 A scene holds at most 10 actions (each click, fill, `scrollTo` or `wait` counts; checkpoints do
-not). A longer flow is two scenes, the second starting where the first ended.
+not). A key pressed several times in a row is one action: `{ "press": "ArrowRight", "times": 8 }`.
+`pr2video scenes --help` lists every step and locator. A longer flow is two scenes, the second starting where the first ended.
 
 ## Scenes that change data
 
 A scene that creates or deletes something (adds a record, sends a form) changes what the next
 scene, and the next recording of itself, finds. Keep the tour replayable:
 
+- `sandbox replay` (either side) runs the setup again from scratch: data a scene created is gone
+  afterwards. Re-record a scene that needs it after the scene that makes it, in one `record --only
+  a,b` (scenes record in the scenes file's order). `--only` keeps every other scene's recording.
 - Record a scene that creates data first, then the seeding that depends on it, as recorded setup
   steps, then the scenes that show the result (`record --only <ids>` records some scenes and keeps
   the others).
@@ -110,6 +126,12 @@ scene, and the next recording of itself, finds. Keep the tour replayable:
 
 ## Signing in
 
-The last sign-in step should wait for something that shows on every signed-in page, whatever else
-appears: a first-run welcome dialog or a banner can cover the navigation. If sign-in stops, the
+Each role signs in once; its cookies and local storage carry into every scene of that role. A
+first-run dialog dismissed during sign-in (a "Got it" that writes local storage) stays dismissed
+in the scenes: add that click to the role's steps.
+
+The last sign-in step should wait for something that shows on every signed-in page and never on
+the sign-in page (a "Log out" button, the user's name), whatever else appears: a first-run welcome
+dialog or a banner can cover the navigation. A sign-in that ends still on its first page fails, and
+so does a head checkpoint that lands back on it: both mean the scene would be filmed signed out. If sign-in stops, the
 recorder saves a screenshot of where it stopped (`recordings/<side>/.auth-<role>-stopped.png`).

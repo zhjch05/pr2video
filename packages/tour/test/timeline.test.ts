@@ -163,4 +163,11 @@ describe("tourProblems", () => {
     const tour = { version: 1, title: "T", summary: "", scenes: [{ ...scene(), zoom: 1.3 }] }
     expect(tourProblems(tour)).toEqual([{ path: "scenes.0.zoom", message: "zoom is 1, 1.5 or 2" }])
   })
+
+  it("holds a tour to 12 scenes", () => {
+    const scenes = Array.from({ length: 13 }, (_, i) => scene({ id: `s${i}` }))
+    const problems = tourProblems({ version: 1, title: "T", summary: "", scenes })
+    expect(problems.map((p) => p.path)).toEqual(["scenes"])
+    expect(problems[0]?.message).toContain("13 scenes, at most 12")
+  })
 })
