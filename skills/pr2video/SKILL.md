@@ -21,7 +21,8 @@ words in zsh). Pass `--json` when you need to act on the output.
 
 Work in `.pr2video/<run>/` in the user's project folder: `sandbox up` prints it (the run is named
 after the head commit, its first 10 characters, or `folder-...` for a folder). Every file you write there is checked by a
-`pr2video ... check` command: **loop until the check passes**, and never hand-edit what the CLI wrote.
+`pr2video ... check` command: **loop until the check passes**, and never hand-edit what the CLI wrote
+(in `tour.json`, the parts the tour reference says are yours to edit are the exception).
 
 ## Phases
 

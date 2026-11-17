@@ -92,6 +92,9 @@ Docker runs (their volumes stay). So each recorded step must work a second time,
 - Write config with `cp -n .env.example .env` or a heredoc, never by hand-editing in place.
 - Reset the database before migrating and seeding when the base's schema differs: record a step
   that drops and recreates it.
+- Wait for a database over TCP before migrating (`until psql -h localhost -p <port> -c 'select 1'; do sleep 1; done`):
+  the postgres image's first start answers `pg_isready` on its socket from a temporary server that
+  then restarts.
 - Do not record exploration (`ls`, `cat`, `curl`): it only slows the replay.
 - The image has Node 24 (with corepack), Python 3, git, curl and Docker. Install anything else the
   project needs (Go, Rust, Java, Ruby) as a recorded step, from the official release at the version
@@ -168,7 +171,10 @@ module, CI workflows) into one of three kinds, and settle each before recording:
 | **Blocker**: only a real value lets the screen show what changed | a payments key whose test-mode objects the page lists, an OAuth app the sign-in redirects to, an AI provider the feature calls | Ask the user (below) |
 
 Most variables are made up or faked. A screen that only needs *some* answer from a service is a
-stub, not a blocker; it is a blocker only when the change is in what the real service does.
+stub, not a blocker; it is a blocker only when the change is in what the real service does **on
+the app's own pages**. The recorder films only the app's origin: a provider's hosted page (a
+payments checkout, an OAuth consent screen) is never in the tour, so a key that only leads there
+unlocks nothing to film. Say so instead of offering it.
 
 ### Asking for a blocker
 
@@ -219,6 +225,12 @@ payments or search provider), stand a stub in for it rather than filming the err
 
 Prefer a provider's own test mode or local emulator where there is one (Stripe's test keys need a
 real account; LocalStack, the Firebase emulators and MailHog do not).
+
+### Ids in URLs
+
+A scene that opens `/orgs/<id>` must find the same id on the base, or its "before" is dropped (the
+base ended on a different page). Seed fixed ids or slugs (`northwind-labs`), never random UUIDs,
+for anything a scene's URL names.
 
 ### Seed data that differs between head and base
 

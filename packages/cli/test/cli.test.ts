@@ -168,4 +168,24 @@ describe("keepWritten", () => {
       gone: ["gone"],
     })
   })
+
+  it("adds a before named in --before ahead of its head scene, and only then", async () => {
+    const { keepWritten } = await import("../src/record-commands.ts")
+    const draft = {
+      version: 1 as const,
+      title: "Draft",
+      summary: "",
+      voice: "none",
+      scenes: [scene("a-before", "TODO before", 2_000), scene("a", "TODO", 4_000)],
+    }
+    const written = { version: 1, title: "Mine", summary: "", scenes: [scene("a", "Mine.", 1)] }
+    expect(keepWritten(draft, written).tour.scenes.map((s) => s.id)).toEqual(["a"])
+    const asked = keepWritten(draft, written, { addBefores: true })
+    expect(asked.tour.scenes.map((s) => [s.id, s.caption])).toEqual([
+      ["a-before", "TODO before"],
+      ["a", "Mine."],
+    ])
+    expect(asked.added).toEqual(["a-before"])
+    expect(asked.notInTour).toEqual([])
+  })
 })

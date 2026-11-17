@@ -429,8 +429,8 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
     throw new Error("nothing was recorded on the head: run `pr2video record` first")
   const previous = flags.fresh ? null : await readJson(out).catch(() => null)
   const merged = previous
-    ? keepWritten(tour, previous)
-    : { tour, kept: [], notInTour: [], gone: [] }
+    ? keepWritten(tour, previous, { addBefores: Boolean(flags.before) })
+    : { tour, kept: [], notInTour: [], gone: [], added: [] }
   await writeFile(out, `${JSON.stringify(merged.tour, null, 2)}\n`)
   if (flags.json)
     console.log(
@@ -443,6 +443,7 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
           kept: merged.kept,
           notInTour: merged.notInTour,
           gone: merged.gone,
+          added: merged.added,
         },
         null,
         2,
@@ -457,8 +458,9 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
       )
       if (merged.notInTour.length)
         console.log(
-          `  drafted but not in your tour (deleted, or new): ${merged.notInTour.join(", ")}; --fresh starts over`,
+          `  drafted but not in your tour (deleted, or new): ${merged.notInTour.join(", ")}; name a before in --before to add it, or --fresh starts over`,
         )
+      for (const id of merged.added) console.log(`  added ${id} (asked for with --before)`)
       for (const id of merged.gone) console.log(`  removed ${id}: no longer recorded`)
     }
   }
@@ -474,18 +476,38 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
 export function keepWritten(
   draft: Tour,
   previous: unknown,
-): { tour: Tour; kept: Array<string>; notInTour: Array<string>; gone: Array<string> } {
+  /**
+   * Befores asked for by name (`--before`): one the tour does not have yet goes
+   * in just ahead of its head scene. Without it a missing before is taken to be
+   * one you deleted, and stays out.
+   */
+  options: { addBefores?: boolean } = {},
+): {
+  tour: Tour
+  kept: Array<string>
+  notInTour: Array<string>
+  gone: Array<string>
+  added: Array<string>
+} {
   const old = previous as Partial<Tour> | null
-  if (!old || !Array.isArray(old.scenes)) return { tour: draft, kept: [], notInTour: [], gone: [] }
+  if (!old || !Array.isArray(old.scenes))
+    return { tour: draft, kept: [], notInTour: [], gone: [], added: [] }
   const drafted = new Map(draft.scenes.map((s) => [s.id, s]))
   const scenes: Array<TourScene> = []
   const kept: Array<string> = []
   const gone: Array<string> = []
+  const added: Array<string> = []
+  const had = new Set(old.scenes.map((s) => s.id))
   for (const written of old.scenes) {
     const fresh = drafted.get(written.id)
     if (!fresh) {
       gone.push(written.id)
       continue
+    }
+    const before = drafted.get(`${written.id}-before`)
+    if (options.addBefores && before && !had.has(before.id)) {
+      scenes.push(before)
+      added.push(before.id)
     }
     scenes.push({
       ...fresh,
@@ -497,9 +519,9 @@ export function keepWritten(
     })
     kept.push(written.id)
   }
-  const ids = new Set(kept)
+  const ids = new Set([...kept, ...added])
   const notInTour = draft.scenes.filter((s) => !ids.has(s.id)).map((s) => s.id)
-  if (!scenes.length) return { tour: draft, kept: [], notInTour: [], gone }
+  if (!kept.length) return { tour: draft, kept: [], notInTour: [], gone, added: [] }
   return {
     tour: {
       ...draft,
@@ -512,5 +534,6 @@ export function keepWritten(
     kept,
     notInTour,
     gone,
+    added,
   }
 }
