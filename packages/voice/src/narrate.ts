@@ -10,7 +10,7 @@ import { dirname, join, relative } from "node:path"
 import { type Tour, tourSchema } from "@pr2video/tour"
 
 import { onPath, run, runOrThrow } from "./run.ts"
-import { VOICES, type VoiceId, type VoiceOptions } from "./voices.ts"
+import { speakerOf, VOICES, type VoiceId, type VoiceOptions } from "./voices.ts"
 import { wavDurationMs } from "./wav.ts"
 
 export type Spoken = { path: string; durationMs: number; format: "mp3" | "wav" }
@@ -140,7 +140,7 @@ export async function narrateTour(
     known.set(audio, clip.durationMs)
     spoken++
   }
-  const next: Tour = { ...tour, scenes, voice }
+  const next: Tour = { ...tour, scenes, voice, speaker: speakerOf(voice, options) }
   await writeFile(tourPath, `${JSON.stringify(next, null, 2)}\n`)
   return { tour: next, spoken, reused }
 }

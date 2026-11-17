@@ -60,7 +60,7 @@ on 24; if it does not, run that version for the project's commands with `npx -y 
    when you need the exit code and output; the full output of every command is in
    `.pr2video/<run>/logs/`.
 3. Start servers with `pr2video sandbox start <name> --port <port> --record -- <command>`. It waits
-   until the port answers on `127.0.0.1` or `::1` with a status below 500, and fails early if the
+   until the port answers on `127.0.0.1` or `::1` with a status below 500 (a redirect counts), and fails early if the
    process exits; then read `pr2video sandbox logs <name>`. A start whose port never answers is not
    recorded. If a temporary server answers first (a migration screen), add
    `--path` with a route only the real app serves, e.g. `--path /api/health`.
@@ -131,7 +131,40 @@ The app can reach the internet from the sandbox (it needs it to install packages
 favicons, fonts or previews from other sites while you record. Prefer settings that turn such
 fetches off, and never give it real accounts or keys.
 
+Never invent real credentials. Use the project's example values (CI workflows often hold a full set
+of fakes), a local double (a Postgres in Docker instead of a hosted one), or a stub. If the app
+cannot start without an outside service you cannot stand in for, stop and say which one.
 
-Never invent real credentials. Use the project's example values, a local double (a Postgres in
-Docker instead of a hosted one), or ask the user. If the app cannot start without an outside
-service you cannot stand in for, stop and say which one.
+### Standing in for an outside service
+
+When a screen only settles once the app has heard back from another service (a vendor API, a
+payments or search provider), stand a stub in for it rather than filming the error state:
+
+1. Find what the app calls: the client module and the env var holding its base URL
+   (`VENDOR_API_ROOT_URL`, `STRIPE_API_BASE`). The app's tests often mock the same calls: their
+   fixtures are the shapes to return.
+2. Write a small server that answers only those routes, under `.pr2video/<run>/mine/`, e.g.
+   `stub.mjs` with `node:http`, returning canned JSON per path.
+3. `pr2video sandbox cp --record .pr2video/<run>/mine/stub.mjs /opt/stub/stub.mjs`, then
+   `pr2video sandbox start stub --port 4010 --record -- node /opt/stub/stub.mjs`, and point the
+   env var at `http://localhost:4010` in the recorded step that writes the app's env.
+4. Say in the tour's summary what is stubbed: the reviewer sees the app's side of the flow, not the
+   service's.
+
+Prefer a provider's own test mode or local emulator where there is one (Stripe's test keys need a
+real account; LocalStack, the Firebase emulators and MailHog do not).
+
+### Seed data that differs between head and base
+
+The base runs the base's code. Data that only the head's code can produce (a new status, a new
+column's value) is not something the base can show: seeding it on both sides films the base doing
+something it never does. Seed what each commit's code would have written, in one recorded step
+that checks for the change, e.g. `if grep -q license_required src/checkout/progress.ts; then psql
+... -f head.sql; else psql ... -f base.sql; fi`, and say so in the before scene's caption if it
+matters.
+
+### Time in seeded data
+
+A page that shows only recent rows ("the last hour", "today") empties when a replay or a re-record
+runs later than the seed. Seed times relative to now (`now() - interval '5 minutes'`), never fixed
+timestamps, and keep a seeding step after anything that waits long (a build).

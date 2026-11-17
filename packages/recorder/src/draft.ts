@@ -126,6 +126,8 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
       before && options.base
         ? relative(options.tourDir, join(options.base, scene.id, before.events))
         : null
+    /** The base screenshot the last "before" showed: two checkpoints on one base screen get one. */
+    let lastBefore: string | null = null
     for (const [i, cp] of result.checkpoints.entries()) {
       const spec = specs.get(cp.checkpoint)
       const was = before?.checkpoints.findIndex((b) => b.checkpoint === cp.checkpoint) ?? -1
@@ -155,7 +157,22 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
         })
       else if (baseCp && !wanted)
         skipped.push({ scene: `${scene.id}-${cp.checkpoint}-before`, reason: "not in --before" })
-      if (before && baseCp && baseEvents && !same && !elsewhere && wanted) {
+      const baseShot =
+        baseCp && options.base ? join(options.base, scene.id, baseCp.screenshot) : null
+      const repeat =
+        !same &&
+        !elsewhere &&
+        wanted &&
+        baseShot !== null &&
+        lastBefore !== null &&
+        (await looksSame(lastBefore, baseShot))
+      if (repeat)
+        skipped.push({
+          scene: `${scene.id}-${cp.checkpoint}-before`,
+          reason: "the base shows the same screen as the previous before",
+        })
+      if (before && baseCp && baseEvents && !same && !elsewhere && wanted && !repeat) {
+        lastBefore = baseShot
         const previous = before.checkpoints[was - 1]
         const next = before.checkpoints[was + 1]
         scenes.push({

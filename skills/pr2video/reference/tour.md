@@ -61,7 +61,8 @@ marks what changed, and holds while the caption is read aloud.
 `pr2video tour draft` writes all of this from the head's recordings; you edit captions, order and
 zoom. Focus and marks come from `scenes.json`: change them there, since drafting again (after
 re-recording) keeps what you wrote in the tour but takes focus and marks fresh. `pr2video narrate` fills in each scene's `audio` and `audioMs` and the tour's `voice`; do not write
-them yourself. Drafting again keeps the narration of every caption it keeps.
+them yourself. Drafting again keeps the narration of every caption it keeps, and leaves out a scene you deleted
+from the tour (`--fresh` brings everything back).
 `pr2video tour check` also checks every recording and clip it names still exists: after
 re-recording, draft again rather than keeping old timings.
 

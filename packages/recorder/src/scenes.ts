@@ -53,7 +53,8 @@ export const checkpointSchema = z.object({
   /** What a reviewer is looking at here and why it matters: the tour's caption. */
   caption: z.string().min(1).max(280),
   /** The element or section the caption is about; scrolled to the middle and zoomed towards. */
-  focus: locatorSchema.optional(),
+  // null is accepted as "no focus", as the tour file writes it.
+  focus: locatorSchema.nullable().optional(),
   zoom: z.union([z.literal(1), z.literal(1.5), z.literal(2)]).optional(),
   marks: z.array(markSchema).max(4).default([]),
 })

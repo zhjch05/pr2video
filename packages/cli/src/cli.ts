@@ -273,13 +273,23 @@ async function main() {
     if (flags.json)
       console.log(
         JSON.stringify(
-          { ok: true, voice, spoken: result.spoken, reused: result.reused, terms },
+          {
+            ok: true,
+            voice,
+            speaker: result.tour.speaker ?? null,
+            spoken: result.spoken,
+            reused: result.reused,
+            terms,
+          },
           null,
           2,
         ),
       )
     else {
-      console.log(`${voice}: ${result.spoken} spoken, ${result.reused} reused`)
+      const speaker = result.tour.speaker
+      console.log(
+        `${voice}${speaker ? ` (${speaker})` : ""}: ${result.spoken} spoken, ${result.reused} reused`,
+      )
       if (terms) console.log(`note: ${terms}`)
     }
     return

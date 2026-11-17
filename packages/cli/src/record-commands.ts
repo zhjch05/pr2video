@@ -307,6 +307,7 @@ export function keepWritten(
       title: old.title || draft.title,
       summary: old.summary ?? draft.summary,
       ...(old.voice ? { voice: old.voice } : {}),
+      ...(old.speaker ? { speaker: old.speaker } : {}),
       scenes,
     },
     kept,

@@ -75,6 +75,8 @@ export const tourSchema = z.object({
   scenes: z.array(sceneSchema).min(1),
   /** Who read the captions aloud: a voice id such as "say" or "kokoro", or "none". */
   voice: z.string().default("none"),
+  /** Which of the voice's speakers read them (a kokoro voice id, a `say -v` name, a Piper model). */
+  speaker: z.string().nullable().optional(),
 })
 export type Tour = z.infer<typeof tourSchema>
 

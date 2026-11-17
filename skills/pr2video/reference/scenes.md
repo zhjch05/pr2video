@@ -125,6 +125,10 @@ scene, and the next recording of itself, finds. Keep the tour replayable:
 
 ## Signing in
 
+Each role signs in once; its cookies and local storage carry into every scene of that role. A
+first-run dialog dismissed during sign-in (a "Got it" that writes local storage) stays dismissed
+in the scenes: add that click to the role's steps.
+
 The last sign-in step should wait for something that shows on every signed-in page and never on
 the sign-in page (a "Log out" button, the user's name), whatever else appears: a first-run welcome
 dialog or a banner can cover the navigation. A sign-in that ends still on its first page fails, and
