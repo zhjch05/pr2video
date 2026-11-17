@@ -1,7 +1,8 @@
 # Third-party notices
 
 pr2video is MIT-licensed (see [LICENSE](LICENSE)). Its published files include code from the
-packages below, bundled in. Each is under the MIT License, whose text follows the table. Every tour
+packages below, bundled in. Each is under the MIT License or the ISC License, whose texts follow
+the table. Every tour
 page pr2video makes (HTML, and the page an MP4 is drawn from) carries the same notice at the top of
 its player script.
 
@@ -12,6 +13,8 @@ its player script.
 | mitt (inside rrweb) | Copyright (c) 2021 Jason Miller | the tour player |
 | base64-arraybuffer (inside rrweb) | Copyright (c) 2012 Niklas von Hertzen | the tour player |
 | zod | Copyright (c) 2025 Colin McDonnell | the CLI, the recorder and the tour player |
+| Feather icons (maximize, minimize; through Lucide) | Copyright (c) 2013-present Cole Bemis | the tour player's controls |
+| Lucide icons (ISC) | Copyright (c) 2026 Lucide Icons and Contributors | the tour player's controls |
 
 Everything else pr2video uses is installed or downloaded separately, under its own licence: Playwright
 (Apache-2.0, an npm dependency) and the Chromium it installs, kokoro-js and the Kokoro-82M model
@@ -38,3 +41,19 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## ISC License
+
+For Lucide icons.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
