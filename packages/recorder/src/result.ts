@@ -21,6 +21,8 @@ export const recordedCheckpointSchema = z.object({
   ),
   /** Marks or a focus the page did not show, by their locator. */
   missing: z.array(z.string()),
+  /** What may put the focus or a mark on the wrong thing (several matches, off-screen). */
+  notes: z.array(z.string()).default([]),
   screenshot: z.string(),
 })
 export type RecordedCheckpoint = z.infer<typeof recordedCheckpointSchema>

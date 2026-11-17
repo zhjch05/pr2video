@@ -84,6 +84,9 @@ export type TourProblem = { path: string; message: string }
  * Every problem with a tour file, worded for the agent that wrote it: schema
  * errors plus the rules a schema cannot say. Empty means the tour is good.
  */
+/** The most scenes a tour may have: past that it stops being a short demo. */
+export const MAX_SCENES = 12
+
 export function tourProblems(input: unknown): Array<TourProblem> {
   const parsed = tourSchema.safeParse(input)
   if (!parsed.success)
@@ -92,6 +95,11 @@ export function tourProblems(input: unknown): Array<TourProblem> {
       message: issue.message,
     }))
   const problems: Array<TourProblem> = []
+  if (parsed.data.scenes.length > MAX_SCENES)
+    problems.push({
+      path: "scenes",
+      message: `${parsed.data.scenes.length} scenes, at most ${MAX_SCENES}: drop the ones that add least (a "before" that shows nothing new, a step the next scene repeats)`,
+    })
   const ids = new Set<string>()
   for (const [i, scene] of parsed.data.scenes.entries()) {
     const at = `scenes.${i}`

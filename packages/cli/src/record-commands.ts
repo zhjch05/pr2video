@@ -19,6 +19,7 @@ export type RecordFlags = {
   only?: string | undefined
   output?: string | undefined
   compare?: boolean | undefined
+  before?: string | undefined
   fresh?: boolean | undefined
 }
 
@@ -26,10 +27,12 @@ export const RECORD_HELP = `Recording:
   pr2video scenes check [<scenes.json>] [--json]  Validate a scenes file (default .pr2video/<run>/scenes.json)
   pr2video record [--side head|base] [--scenes <file>] [--only <id,id>]
                                                 Record the scenes in the sandbox's browser
-  pr2video tour draft [--compare] [--fresh] [--scenes <file>] [-o <tour.json>]
+  pr2video tour draft [--compare | --before <id,id>] [--fresh] [--scenes <file>] [-o <tour.json>]
                                                 A first tour from the head's recordings; --compare puts
                                                 each checkpoint's base recording before it ("before")
-                                                where its screenshot differs from the head's.
+                                                where its screenshot differs from the head's; --before
+                                                does that only for the checkpoints named (scene ids,
+                                                checkpoint names, or <scene>-<checkpoint>).
                                                 Drafting over an existing tour keeps its scenes, order,
                                                 titles, labels, captions and zooms, and takes recordings,
                                                 timings, focus and marks fresh; --fresh starts over`
@@ -82,6 +85,21 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   if (problems.length) {
     const message = problems.map((p) => `${p.path}: ${p.message}`).join("\n")
     throw new Error(`the scenes file has problems; fix them first:\n${message}`)
+  }
+  // A server that is not up (a replay that failed, a dev server that died)
+  // would fail every scene one timeout at a time: say so at once.
+  const baseUrl = (input as { baseUrl?: string }).baseUrl
+  if (baseUrl) {
+    const probe = await exec(
+      record,
+      `curl -s -o /dev/null -m 10 -w '%{http_code}' ${JSON.stringify(baseUrl)} || true`,
+      { cwd: INSIDE },
+    )
+    const code = probe.stdout.trim()
+    if (!code || code === "000")
+      throw new Error(
+        `nothing answers at ${baseUrl} in the sandbox: start the app first (\`pr2video sandbox ps\` shows what is running; after a replay, check that it succeeded)`,
+      )
   }
   const recorder = await assetPath("record.mjs")
   try {
@@ -198,7 +216,15 @@ export async function tourDraft(flags: RecordFlags): Promise<number> {
     scenes,
     recordings: join(dir, "recordings", "head"),
     tourDir: dirname(out),
-    base: flags.compare ? join(dir, "recordings", "base") : undefined,
+    base: flags.compare || flags.before ? join(dir, "recordings", "base") : undefined,
+    befores: flags.before
+      ? new Set(
+          flags.before
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean),
+        )
+      : undefined,
   })
   if (!tour.scenes.length)
     throw new Error("nothing was recorded on the head: run `pr2video record` first")

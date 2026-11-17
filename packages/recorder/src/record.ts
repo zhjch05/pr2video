@@ -51,8 +51,13 @@ const rrwebPath =
 
 const file: ScenesFile = scenesFileSchema.parse(JSON.parse(await readFile(values.scenes, "utf8")))
 const origin = new URL(file.baseUrl).origin
-/** How long a step waits for its element before the scene stops. */
-const STEP_TIMEOUT_MS = file.timeoutMs
+/**
+ * How long a step waits for its element before the scene stops. On the base
+ * a scene often stops on purpose, at something the pull request adds: waiting
+ * the head's full timeout for each of those cost minutes, so the base waits at
+ * most 8s (its pages were warmed up already).
+ */
+const STEP_TIMEOUT_MS = side === "base" ? Math.min(file.timeoutMs, 8_000) : file.timeoutMs
 /** A first visit to a page a dev server has not compiled yet. */
 const WARMUP_TIMEOUT_MS = 120_000
 
@@ -102,6 +107,12 @@ function describe(spec: LocatorSpec): string {
 }
 
 function locate(page: Page, spec: LocatorSpec): Locator {
+  const found = locateAll(page, spec)
+  return spec.nth !== undefined ? found.nth(spec.nth) : found.first()
+}
+
+/** Every element the spec matches, before `nth` (or the first) picks one. */
+function locateAll(page: Page, spec: LocatorSpec): Locator {
   const exact = spec.exact
   let found: Locator
   if (spec.role)
@@ -117,7 +128,38 @@ function locate(page: Page, spec: LocatorSpec): Locator {
     found = page.getByPlaceholder(spec.placeholder, exact !== undefined ? { exact } : {})
   else if (spec.testId !== undefined) found = page.getByTestId(spec.testId)
   else found = page.locator(spec.css ?? "html")
-  return spec.nth !== undefined ? found.nth(spec.nth) : found.first()
+  return found
+}
+
+/**
+ * What may make a focus or mark land on the wrong thing: a locator that
+ * matches several elements (the first is used), or one that sits off-screen.
+ */
+async function notesFor(
+  page: Page,
+  spec: LocatorSpec,
+  measured: { box: { y: number; height: number } } | null,
+): Promise<Array<string>> {
+  const notes: Array<string> = []
+  if (spec.nth === undefined) {
+    const count = await locateAll(page, spec)
+      .count()
+      .catch(() => 1)
+    if (count > 1)
+      notes.push(
+        `${describe(spec)} matches ${count} elements; the first was used (add nth, or a narrower locator)`,
+      )
+  }
+  const view = page.viewportSize()
+  if (
+    measured &&
+    view &&
+    (measured.box.y + measured.box.height <= 0 || measured.box.y >= view.height)
+  )
+    notes.push(
+      `${describe(spec)} is off-screen (y ${Math.round(measured.box.y)} in a ${view.height}px view)`,
+    )
+  return notes
 }
 
 async function settle(page: Page) {
@@ -223,6 +265,20 @@ async function measure(target: Locator) {
   })
 }
 
+/** The sign-in pages roles start from: a head checkpoint there means the scene was signed out. */
+const signInPaths = new Set<string>()
+
+/** The page a role's sign-in starts on: its first `goto`. */
+function signInPage(steps: ReadonlyArray<Action>): string | null {
+  for (const step of steps) if ("goto" in step) return step.goto
+  return null
+}
+
+function samePath(url: string, path: string): boolean {
+  const strip = (p: string) => p.replace(/\/$/, "")
+  return strip(new URL(url).pathname) === strip(new URL(absolute(path)).pathname)
+}
+
 class SignInError extends Error {
   readonly screenshot: string | null
   constructor(message: string, screenshot: string | null) {
@@ -253,6 +309,21 @@ async function signIn(browser: Browser, role: string): Promise<string> {
       }
     }
     await settle(page)
+    // A last waitFor that the sign-in page also shows passes before anyone is
+    // signed in, and every scene is then filmed signed out.
+    const signInPath = signInPage(steps)
+    if (signInPath && samePath(page.url(), signInPath)) {
+      const shot = `.auth-${role}-stopped.png`
+      const saved = await page
+        .screenshot({ path: join(out, shot) })
+        .then(() => shot)
+        .catch(() => null)
+      throw new SignInError(
+        `signing in as ${role} ended still on the sign-in page (${page.url()}): its last step passed before signing in finished; wait for something only a signed-in page shows (a "Log out" button, the user's name)`,
+        saved,
+      )
+    }
+    if (signInPath) signInPaths.add(new URL(absolute(signInPath)).pathname.replace(/\/$/, ""))
     await rm(join(out, `.auth-${role}-stopped.png`), { force: true })
     const path = join(out, `.auth-${role}.json`)
     await context.storageState({ path })
@@ -332,7 +403,9 @@ async function recordScene(
     log(`${scene.id}: could not open ${scene.url}: ${error.message}`)
   }
   await flush()
-  const json = await inlineFonts(context, JSON.stringify(events))
+  let json = await inlineFonts(context, JSON.stringify(events))
+  const sprites = await spriteEvent(context, json, events.at(-1)?.timestamp ?? Date.now())
+  if (sprites) json = `${json.slice(0, -1)}${json.length > 2 ? "," : ""}${JSON.stringify(sprites)}]`
   await context.close()
 
   const start = events[0]?.timestamp ?? Date.now()
@@ -367,6 +440,14 @@ async function checkpoint(
   flush: () => Promise<unknown>,
 ) {
   await settle(page)
+  if (
+    side === "head" &&
+    scene.role &&
+    signInPaths.has(new URL(page.url()).pathname.replace(/\/$/, ""))
+  )
+    throw new Error(
+      `checkpoint ${step.checkpoint} is on the sign-in page (${page.url()}): the scene was signed out or sent back to sign in`,
+    )
   const missing: Array<string> = []
   let focus: RecordedCheckpoint["focus"] = null
   if (step.focus) {
@@ -396,6 +477,7 @@ async function checkpoint(
     }
   }
   const at = Date.now()
+  const notes: Array<string> = step.focus ? await notesFor(page, step.focus, focus) : []
   const marks: RecordedCheckpoint["marks"] = []
   for (const mark of step.marks) {
     const target = locate(page, mark.locator)
@@ -403,8 +485,17 @@ async function checkpoint(
       missing.push(describe(mark.locator))
       continue
     }
-    marks.push({ ...(await measure(target)), tone: mark.tone, label: mark.label })
+    const measured = await measure(target)
+    notes.push(...(await notesFor(page, mark.locator, measured)))
+    marks.push({ ...measured, tone: mark.tone, label: mark.label })
   }
+  for (const note of notes) log(`${scene.id} ${step.checkpoint}: note: ${note}`)
+  // On the head the marks are what the caption names: none of them there, and
+  // no focus to say otherwise, is a scene on the wrong page.
+  if (side === "head" && !step.focus && step.marks.length > 0 && marks.length === 0)
+    throw new Error(
+      `checkpoint ${step.checkpoint}: none of its marks are on the page (${missing.join("; ")}) at ${page.url()}: is it the right page?`,
+    )
   await flush()
   const shot = Date.now()
   const screenshot = `${step.checkpoint}.png`
@@ -418,6 +509,7 @@ async function checkpoint(
     focus,
     marks,
     missing,
+    notes,
     screenshot,
   }
 }
@@ -461,6 +553,47 @@ async function inlineFonts(context: BrowserContext, json: string): Promise<strin
   }
   if (replacements.size) log(`inlined ${replacements.size} font(s), ${(total / 1e6).toFixed(1)} MB`)
   return replacements.size ? json.replace(FONT_URL, (url) => replacements.get(url) ?? url) : json
+}
+
+/** The tag of the custom rrweb event that carries a recording's SVG sprite files. */
+export const SPRITES_TAG = "pr2video-sprites"
+/** `<use href="https://app/icons.svg?v=1#plus">`: an icon drawn from a sprite file on the app. */
+const SPRITE_HREF = /"(?:xlink:)?href":"(https?:\/\/[^"#]+)#[^"]+"/g
+const MAX_SPRITE_BYTES = 2 * 1024 * 1024
+
+/**
+ * The SVG sprite files the recording's `<use>` icons point at, fetched while
+ * the app still answers. The replay cannot reach the app, so those icons were
+ * blank; the player puts these files' symbols into the replay instead. They
+ * travel as one custom rrweb event at the end of the recording.
+ */
+async function spriteEvent(
+  context: BrowserContext,
+  json: string,
+  timestamp: number,
+): Promise<{
+  type: 5
+  timestamp: number
+  data: { tag: string; payload: Record<string, string> }
+} | null> {
+  const urls = [...new Set([...json.matchAll(SPRITE_HREF)].map((m) => m[1] ?? ""))].filter(Boolean)
+  const sprites: Record<string, string> = {}
+  let total = 0
+  for (const url of urls) {
+    try {
+      const response = await context.request.get(url, { timeout: 15_000 })
+      if (!response.ok()) continue
+      const text = await response.text()
+      if (!text.includes("<svg") || total + text.length > MAX_SPRITE_BYTES) continue
+      total += text.length
+      sprites[url] = text
+    } catch {
+      // Unreachable: those icons stay blank.
+    }
+  }
+  if (!Object.keys(sprites).length) return null
+  log(`kept ${Object.keys(sprites).length} SVG sprite file(s), ${(total / 1e3).toFixed(0)} KB`)
+  return { type: 5, timestamp, data: { tag: SPRITES_TAG, payload: sprites } }
 }
 
 /**

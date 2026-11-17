@@ -145,6 +145,26 @@ describe("draftTour", () => {
     ])
   })
 
+  it("with --before, makes a before only for the checkpoints named", async () => {
+    const { tour, skipped } = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: `${fixtures}head`,
+      tourDir: fixtures,
+      base: `${fixtures}base`,
+      befores: new Set(["some-other-checkpoint"]),
+    })
+    expect(tour.scenes.map((s) => s.id)).toEqual(["dark-mode-switch", "dark-mode-on"])
+    expect(skipped).toEqual([{ scene: "dark-mode-switch-before", reason: "not in --before" }])
+    const named = await draftTour({
+      scenes: scenesFileSchema.parse(await scenesFile()),
+      recordings: `${fixtures}head`,
+      tourDir: fixtures,
+      base: `${fixtures}base`,
+      befores: new Set(["dark-mode-switch"]),
+    })
+    expect(named.tour.scenes[0]?.id).toBe("dark-mode-switch-before")
+  })
+
   it("leaves out a scene that was never recorded", async () => {
     const file = scenesFileSchema.parse(await scenesFile())
     const [first] = file.scenes

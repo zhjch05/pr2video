@@ -5,7 +5,7 @@
 import {
   copyIn,
   down,
-  dropJournalStep,
+  dropJournalSteps,
   exec,
   type JournalEntry,
   list,
@@ -63,7 +63,8 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
                                                 keeps a copy in the run and journals it, so replay copies it too
   pr2video sandbox ps | logs <name> [--tail <n>] | stop <name>
   pr2video sandbox journal                      The recorded setup steps
-  pr2video sandbox journal drop <n>             Remove step n (a wrong step, or one to record again)
+  pr2video sandbox journal drop <n>[-<m>]       Remove step n, or steps n to m (a wrong step, or ones to
+                                                record again; the steps after them stay)
   pr2video sandbox save [--path <dir,dir>]      Keep the services' data (every Docker volume) and the
                                                 paths, for a later run's up --from
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
@@ -286,9 +287,18 @@ export async function sandboxCommand(
       // The journal is a file on the host: reading or editing it needs no running sandbox.
       const record = await storedRecord(cwd, flags.run)
       if (rest[0] === "drop") {
-        const dropped = await dropJournalStep(record.repo, record.run, integer(rest[1], "the step"))
+        // One step (`drop 3`) or a range (`drop 2-7`, to record a middle step again).
+        const [first = "", last = first] = (rest[1] ?? "").split("-")
+        const from = integer(first, "the step")
+        const dropped = await dropJournalSteps(
+          record.repo,
+          record.run,
+          from,
+          integer(last, "the step"),
+        )
         answer({ ok: true, dropped })
-        say(`dropped step ${rest[1]}: ${describeStep(dropped)}`)
+        for (const [i, step] of dropped.entries())
+          say(`dropped step ${from + i}: ${describeStep(step)}`)
         return 0
       }
       const journal = await readJournal(record.repo, record.run)

@@ -13,6 +13,9 @@ Chromium lives in `/opt/pr2video`, apart from anything the project installs: a p
 `playwright install` cannot break recording. pnpm and npm caches persist
 across runs, and Docker Hub pulls go through a local cache.
 
+`pr2video sandbox down` removes the sandbox. It leaves one shared container running,
+`pr2video-mirror`, the Docker Hub pull cache every sandbox uses: that is expected, not a leftover.
+
 ## How commands are passed
 
 After `--`, **one argument is a shell command as written**:
@@ -24,7 +27,17 @@ The host's project folder is only mounted read-only at `/src`, for checking out 
 work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring in a file you wrote (a seed script, a fixture), copy it:
 `pr2video sandbox cp --record ./seed.cjs /opt/seed/seed.cjs`, then record a step that runs it.
 `--record` keeps a copy in the run and journals the copy, so replay brings the same file. Keep it out
-of the project's own files and under `.pr2video/<run>/` on the host.
+of the project's own files and under `.pr2video/<run>/` on the host, in a folder of your own such
+as `.pr2video/<run>/mine/` (`files/` is where the run keeps its copies). The copy is taken when you
+run `cp`: a file you change or add later needs another `cp --record`.
+
+## Python versions
+
+The image has Python 3.11. A project that needs another (`requires-python`, `.python-version`) gets
+it from uv: install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then run the install
+with the version the project's wheels exist for, e.g. `uv sync --python 3.13`, with
+`UV_PYTHON_INSTALL_DIR=/opt/uv-python` so the interpreter stays outside `/work/head` and replay
+reuses it. A newer Python than the project names can lack wheels for its compiled dependencies.
 
 ## Node and package-manager versions
 
@@ -56,10 +69,12 @@ on 24; if it does not, run that version for the project's commands with `npx -y 
 ## Make every recorded step replayable
 
 `pr2video sandbox replay` runs the recorded steps again in `/work/base` (paths under `/work/head`
-are rewritten) after stopping every background process. So each recorded step must work a second
-time, on the base:
+are rewritten) after stopping every background process and removing every container the sandbox's
+Docker runs (their volumes stay). So each recorded step must work a second time, on the base:
 
-- Prefer `docker compose up -d` (idempotent) over `docker run --name ...`; if you must, write
+- Start services with `docker compose -p <project> up -d --wait`. Pin the project name with `-p`:
+  compose otherwise names it after the folder (`head`, `base`), and the base then gets a second set
+  of volumes, or clashes with a fixed `container_name`. For a single container,
   `docker rm -f db 2>/dev/null; docker run -d --name db ...`.
 - Write config with `cp -n .env.example .env` or a heredoc, never by hand-editing in place.
 - Reset the database before migrating and seeding when the base's schema differs: record a step
@@ -69,6 +84,12 @@ time, on the base:
   project needs (Go, Rust, Java, Ruby) as a recorded step, from the official release at the version
   the project names (`go.mod`, `rust-toolchain`, `.tool-versions`), or run it with `docker run` or
   the project's compose file. Keep it outside `/work/head`, e.g. `/opt/go`, so replay reuses it.
+- Order matters: a reset (`docker compose -p <project> down -v`) or anything else later steps
+  depend on is recorded before them. `pr2video sandbox journal drop <n>-<m>` takes back a run of
+  steps to record them again in the right order.
+- Run the app as its users get it when you can (a production build and `start`): a dev server adds
+  its own overlay (the Next.js badge, error toasts) to every recording, and compiles each page on
+  its first visit. Use the dev server when the build needs services or secrets you cannot fake.
 - Record setup steps only while working on the head. Something you find you need while on the base
   (a warm-up, a missing file) belongs in the journal too: add it, then `replay` again.
 
@@ -79,6 +100,10 @@ account, finish a setup wizard. The README names the default account; the app's 
 setup (`tests/e2e/*setup*`, `playwright/`, `cypress/support/`, fixtures) shows how its tests get
 past the first run, usually in a few API calls. Record those as setup steps, written so they can
 run again (a second run must not fail because the password is already changed).
+
+A framework whose admin user is made interactively (Django's `createsuperuser`, Rails' console)
+is made in the seed instead: e.g. a Python step
+`python manage.py shell -c "from django.contrib.auth.models import User; User.objects.filter(username='demo').exists() or User.objects.create_superuser('demo', 'demo@example.com', 'demo-password')"`.
 
 ## Seeding data
 

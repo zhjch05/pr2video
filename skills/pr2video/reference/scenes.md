@@ -83,6 +83,10 @@ work as well as plain CSS.
 - No focus: the tour zooms towards the marks at the scene's `zoom` (the draft gives 2; set 1 in the
   tour to show the whole screen), and the recorder scrolls the first mark into view if it is
   off-screen. Something lower on the page that the caption is about wants a focus, so it is centred.
+- After recording, read each checkpoint's `notes` in `result.json` (and the `note:` lines `record`
+  prints): a locator that matched several elements (the first was used) or a box off-screen puts
+  a focus or mark on the wrong thing. On the head, a checkpoint with marks, no focus and none of
+  its marks on the page stops the scene: it is the wrong page.
 - `marks` (up to 4) outline the exact things the caption names, each with a tone: `added`,
   `removed`, `changed`, or `note`. On the head the focus must be on the page, or the scene stops: it
   was the wrong page. A mark that is not there is listed under `missing` in `result.json`.
@@ -110,6 +114,8 @@ scene, and the next recording of itself, finds. Keep the tour replayable:
 
 ## Signing in
 
-The last sign-in step should wait for something that shows on every signed-in page, whatever else
-appears: a first-run welcome dialog or a banner can cover the navigation. If sign-in stops, the
+The last sign-in step should wait for something that shows on every signed-in page and never on
+the sign-in page (a "Log out" button, the user's name), whatever else appears: a first-run welcome
+dialog or a banner can cover the navigation. A sign-in that ends still on its first page fails, and
+so does a head checkpoint that lands back on it: both mean the scene would be filmed signed out. If sign-in stops, the
 recorder saves a screenshot of where it stopped (`recordings/<side>/.auth-<role>-stopped.png`).

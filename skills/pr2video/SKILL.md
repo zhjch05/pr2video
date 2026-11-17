@@ -83,7 +83,7 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
 
    ```bash
    pr2video sandbox replay              # the recorded setup, on the base commit
-   pr2video record --side base          # the same scenes; stopping early on the base is expected
+   pr2video record --side base          # the same scenes; stopping early on the base is expected (a step waits at most 8s there)
    pr2video sandbox replay --side head  # back to the head, if you need to re-record a head scene
    ```
 
@@ -95,12 +95,15 @@ Work in `.pr2video/<run>/` in the user's project folder. Every file you write th
    ```bash
    pr2video tour draft                  # .pr2video/<run>/tour.json
    pr2video tour draft --compare        # with a base: each checkpoint the base reached, shown first as "before"
+   pr2video tour draft --before a,b     # or a "before" only for the checkpoints that need one
    pr2video tour check .pr2video/<run>/tour.json
    pr2video render .pr2video/<run>/tour.json --frame 4000,12000   # stills, exactly as the video draws them
    ```
 
    With `--compare`, a checkpoint whose base screenshot looks the same as the head's gets no
-   "before" (the draft lists them as left out). Write the other "before" captions from the base
+   "before" (the draft lists them as left out). A "before" earns its place when the base shows
+   something to compare (the old value, the old layout), not when it only lacks what the head
+   adds: name those with `--before`. A tour has at most 12 scenes, and `tour check` holds it to that. Write the other "before" captions from the base
    screenshot:
    `tour check` refuses the draft's TODO. Drafting again after re-recording keeps the scenes, order,
    captions and zooms you wrote and takes fresh timings, focus and marks; change focus and marks in

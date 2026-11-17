@@ -104,9 +104,25 @@ export async function appendJournal(repo: string, run: string, entry: JournalEnt
 
 /** Removes step `n` (1-based) from the journal; returns the step removed. */
 export async function dropJournalStep(repo: string, run: string, n: number): Promise<JournalEntry> {
+  const [dropped] = await dropJournalSteps(repo, run, n, n)
+  if (!dropped) throw new Error(`no step ${n}`)
+  return dropped
+}
+
+/** Removes steps `from` to `to` (1-based, inclusive); returns the steps removed. */
+export async function dropJournalSteps(
+  repo: string,
+  run: string,
+  from: number,
+  to: number,
+): Promise<Array<JournalEntry>> {
   const journal = await readJournal(repo, run)
-  const [dropped] = Number.isInteger(n) && n >= 1 ? journal.splice(n - 1, 1) : []
-  if (!dropped) throw new Error(`no step ${n}: the journal has ${journal.length} step(s)`)
+  const valid = Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to >= from
+  if (!valid || to > journal.length)
+    throw new Error(
+      `no step${from === to ? ` ${from}` : `s ${from}-${to}`}: the journal has ${journal.length} step(s)`,
+    )
+  const dropped = journal.splice(from - 1, to - from + 1)
   await writeFile(
     join(runDir(repo, run), "journal.jsonl"),
     journal.map((entry) => `${JSON.stringify(entry)}\n`).join(""),

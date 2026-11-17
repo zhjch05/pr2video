@@ -8,6 +8,7 @@ import { validRun } from "../src/sandbox.ts"
 import {
   appendJournal,
   dropJournalStep,
+  dropJournalSteps,
   type JournalEntry,
   readDataManifest,
   readJournal,
@@ -76,6 +77,27 @@ describe("journal", () => {
     ])
     await expect(dropJournalStep(repo, "r1", 0)).rejects.toThrow("no step 0")
     await expect(dropJournalStep(repo, "r1", 3)).rejects.toThrow("the journal has 2 step(s)")
+  })
+
+  it("drops a range of steps, keeping the ones after it", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "pr2video-journal-"))
+    await mkdir(runDir(repo, "r1"), { recursive: true })
+    for (const command of ["a", "b", "c", "d", "e"])
+      await appendJournal(repo, "r1", {
+        kind: "exec",
+        command,
+        cwd: "/",
+        exitCode: 0,
+        ms: 1,
+        at: "t",
+      })
+    const dropped = await dropJournalSteps(repo, "r1", 2, 4)
+    expect(dropped.map((e) => e.kind === "exec" && e.command)).toEqual(["b", "c", "d"])
+    expect((await readJournal(repo, "r1")).map((e) => e.kind === "exec" && e.command)).toEqual([
+      "a",
+      "e",
+    ])
+    await expect(dropJournalSteps(repo, "r1", 2, 5)).rejects.toThrow("no steps 2-5")
   })
 
   it("moves a copy's destination to the base, not its kept file", () => {

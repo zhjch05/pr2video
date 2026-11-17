@@ -192,6 +192,7 @@ async function main() {
       frame: { type: "string" },
       png: { type: "string" },
       compare: { type: "boolean" },
+      before: { type: "string" },
       fresh: { type: "boolean" },
       fps: { type: "string" },
       workers: { type: "string" },

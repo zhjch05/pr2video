@@ -30,6 +30,11 @@ export type DraftOptions = {
    * head's, when there is nothing before to show.
    */
   base?: string | undefined
+  /**
+   * With `base`, only these checkpoints get a "before": head tour scene ids
+   * (`<scene>-<checkpoint>`), checkpoint names or scene ids. All, when unset.
+   */
+  befores?: ReadonlySet<string> | undefined
 }
 
 export type DraftResult = { tour: Tour; skipped: Array<{ scene: string; reason: string }> }
@@ -102,12 +107,19 @@ export async function draftTour(options: DraftOptions): Promise<DraftResult> {
           join(options.recordings, scene.id, cp.screenshot),
           join(options.base, scene.id, baseCp.screenshot),
         ))
+      const wanted =
+        !options.befores ||
+        options.befores.has(`${scene.id}-${cp.checkpoint}`) ||
+        options.befores.has(cp.checkpoint) ||
+        options.befores.has(scene.id)
       if (same)
         skipped.push({
           scene: `${scene.id}-${cp.checkpoint}-before`,
           reason: "the base looks the same at this checkpoint",
         })
-      if (before && baseCp && baseEvents && !same) {
+      else if (baseCp && !wanted)
+        skipped.push({ scene: `${scene.id}-${cp.checkpoint}-before`, reason: "not in --before" })
+      if (before && baseCp && baseEvents && !same && wanted) {
         const previous = before.checkpoints[was - 1]
         const next = before.checkpoints[was + 1]
         scenes.push({

@@ -490,7 +490,59 @@ export class TourPlayer {
     this.overlay(state)
     this.showCanvases()
     this.tidyImages()
+    this.inlineSprites()
     return state
+  }
+
+  private spriteFiles: { events: string | null; files: Array<[string, string]> } = {
+    events: null,
+    files: [],
+  }
+
+  /**
+   * Icons drawn from an SVG sprite on the app (`<use href="/icons.svg#plus">`)
+   * cannot reach it in the replay: the recorder kept the sprite files (a
+   * custom event), whose symbols go into the replay's page once, renamed, and
+   * each such `<use>` points at its copy.
+   */
+  private inlineSprites() {
+    const { replayer, recorded, events } = this.current
+    if (this.spriteFiles.events !== events) {
+      const found = (
+        recorded as Array<{ type?: number; data?: { tag?: string; payload?: unknown } }>
+      ).find((e) => e.type === 5 && e.data?.tag === "pr2video-sprites")
+      const payload = (found?.data?.payload ?? {}) as Record<string, string>
+      this.spriteFiles = { events, files: Object.entries(payload) }
+    }
+    const files = this.spriteFiles.files
+    const doc = replayer?.iframe.contentDocument
+    if (!files.length || !doc?.body) return
+    if (!doc.getElementById("p2v-sprites")) {
+      const svg = "http://www.w3.org/2000/svg"
+      const holder = doc.createElementNS(svg, "svg")
+      holder.id = "p2v-sprites"
+      holder.setAttribute("aria-hidden", "true")
+      holder.setAttribute("style", "position:absolute;width:0;height:0;overflow:hidden")
+      for (const [n, [, text]] of files.entries()) {
+        const sprite = new DOMParser().parseFromString(text, "image/svg+xml").documentElement
+        for (const element of Array.from(sprite.querySelectorAll("[id]")))
+          element.id = `p2v${n}-${element.id}`
+        for (const child of Array.from(sprite.childNodes))
+          holder.append(doc.importNode(child, true))
+      }
+      doc.body.append(holder)
+    }
+    for (const use of Array.from(doc.querySelectorAll("use"))) {
+      for (const attr of ["href", "xlink:href"]) {
+        const value = use.getAttribute(attr)
+        const hash = value?.indexOf("#") ?? -1
+        if (!value || hash <= 0) continue
+        const n = files.findIndex(([url]) => url === value.slice(0, hash))
+        if (n < 0) continue
+        use.removeAttribute(attr)
+        use.setAttribute("href", `#p2v${n}-${value.slice(hash + 1)}`)
+      }
+    }
   }
 
   /**
