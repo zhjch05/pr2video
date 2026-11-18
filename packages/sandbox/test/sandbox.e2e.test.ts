@@ -10,17 +10,33 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 
 import {
+  docker,
   down,
+  engineVolume,
   exec,
   processes,
   readJournal,
   replay,
+  resolveRecord,
   type SandboxRecord,
+  sandboxes,
+  sleepContainer,
   start,
   up,
+  waitPort,
 } from "../src/index.ts"
 
 const enabled = process.env.PR2VIDEO_TEST_DOCKER === "1"
+
+// `up` sweeps by the cleanup policy: never let a test put to sleep or remove
+// the sandboxes of whoever runs it.
+for (const name of [
+  "PR2VIDEO_SANDBOX_IDLE",
+  "PR2VIDEO_SANDBOX_TTL",
+  "PR2VIDEO_KEEP_SANDBOXES",
+  "PR2VIDEO_CACHE_MAX",
+])
+  process.env[name] = "off"
 
 async function repoWithTwoCommits(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "pr2video-repo-"))
@@ -72,6 +88,34 @@ describe.runIf(enabled)("sandbox", () => {
     const base = await exec(record, "cat index.html build.txt", { cwd: "/work/base" })
     expect(base.stdout).toContain("Before")
     expect(base.stdout).toContain("built")
+  }, 900_000)
+
+  it("sleeps, wakes with its services and servers, and down removes its volume", async () => {
+    const repo = await repoWithTwoCommits()
+    const box = await up({ cwd: repo, base: null, run: `sleep-${Date.now().toString(36)}` })
+    try {
+      const served = await start(box, "web", "python3 -m http.server 8081", { port: 8081 })
+      expect(served.wait?.ok).toBe(true)
+      const service = await exec(box, "docker run -d --name svc busybox sleep 600", {
+        timeoutMs: 180_000,
+      })
+      expect(service.exitCode).toBe(0)
+
+      await sleepContainer(box.container)
+      const asleep = (await sandboxes()).find((s) => s.container === box.container)
+      expect(asleep?.running).toBe(false)
+      await expect(resolveRecord(repo, box.run, { wake: false })).rejects.toThrow(/asleep/)
+
+      const lines: Array<string> = []
+      await resolveRecord(repo, box.run, { log: (line) => lines.push(line) })
+      expect(lines.join("\n")).toMatch(/started web again: HTTP 200/)
+      expect((await waitPort(box, 8081, { timeoutMs: 10_000 })).ok).toBe(true)
+      const inner = await exec(box, "docker inspect -f '{{.State.Running}}' svc")
+      expect(inner.stdout.trim()).toBe("true")
+    } finally {
+      await down(box)
+    }
+    expect((await docker(["volume", "inspect", engineVolume(box.run)])).code).not.toBe(0)
   }, 900_000)
 
   it("copies a folder without git as it is, leaving out dependencies", async () => {

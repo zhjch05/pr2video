@@ -10,20 +10,27 @@ import {
   down,
   dropJournalSteps,
   exec,
+  formatBytes,
+  imageTag,
   type JournalEntry,
   list,
   logs,
   moveJournalStep,
+  policyFromEnv,
   processes,
+  pruneAll,
   readJournal,
   replay,
   resolveRecord,
   restoredSteps,
   runDir,
   type SandboxRecord,
+  sandboxes,
   saveData,
+  sleepContainer,
   start,
   stop,
+  sweep,
   up,
   waitPort,
 } from "@pr2video/sandbox"
@@ -48,6 +55,7 @@ export type SandboxFlags = {
   all?: boolean | undefined
   data?: boolean | undefined
   side?: string | undefined
+  "dry-run"?: boolean | undefined
 }
 
 export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull request never runs on your machine):
@@ -80,7 +88,17 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox replay [--side base|head]     Run the recorded steps again on the base (default) or the head
   After --, one argument is a shell command as written ('npm ci && npm run build'); several are an
   argv, quoted for you (sh -c 'a; b' works). Commands run as root with cwd /work/head by default.
-  pr2video sandbox status | ls [--all] | down
+  pr2video sandbox status
+  pr2video sandbox ls [--all]                   Sandboxes with their memory, disk and when last used
+  pr2video sandbox sleep                        Stop the sandbox when the tour is done: frees its memory,
+                                                keeps its disk; any sandbox command wakes it
+  pr2video sandbox down                         Remove it (its journal, saved data and tour stay in .pr2video/)
+  pr2video sandbox prune [--dry-run]            Apply the cleanup policy now (it also runs on every up and sleep)
+  pr2video sandbox prune --all [--dry-run]      Remove everything pr2video keeps in Docker: every sandbox,
+                                                the caches, the mirror, the images
+  Cleanup policy (environment variables): PR2VIDEO_SANDBOX_IDLE=1h puts an unused running sandbox
+  to sleep; PR2VIDEO_SANDBOX_TTL=3d removes one asleep that long; PR2VIDEO_KEEP_SANDBOXES=3 keeps at
+  most that many; PR2VIDEO_CACHE_MAX=10g empties a shared cache above that. Each takes "off".
 
 ${ENV_HELP}`
 
@@ -121,6 +139,14 @@ function headLabel(record: SandboxRecord): string {
   return record.head.folder
     ? `head = the working folder as it was (${record.repo})`
     : `head ${record.head.sha.slice(0, 10)}`
+}
+
+function ago(date: Date): string {
+  const minutes = Math.round((Date.now() - date.getTime()) / 60_000)
+  if (minutes < 1) return "just now"
+  if (minutes < 120) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`
 }
 
 export function shellQuote(arg: string): string {
@@ -375,25 +401,65 @@ export async function sandboxCommand(
           ),
         ),
       )
-      const found = flags.all ? all : all.filter((_, i) => mine[i])
+      const shown = new Set(
+        (flags.all ? all : all.filter((_, i) => mine[i])).map((s) => s.container),
+      )
+      const found = (await sandboxes({ sizes: true })).filter((s) => shown.has(s.container))
       answer({ sandboxes: found })
-      if (!flags.all && found.length < all.length)
-        say(`(${all.length - found.length} more from other projects: --all lists them)`)
+      if (!flags.all && shown.size < all.length)
+        say(`(${all.length - shown.size} more from other projects: --all lists them)`)
+      if (found.length)
+        say(
+          `${"RUN".padEnd(14)} ${"STATE".padEnd(8)} ${"MEMORY".padStart(8)} ${"DISK".padStart(8)}  LAST USED`,
+        )
       for (const s of found)
-        say(`${s.run.padEnd(14)} ${s.state.padEnd(8)} ${s.container}  ${s.created}`)
+        say(
+          `${s.run.padEnd(14)} ${(s.running ? "running" : "asleep").padEnd(8)} ${(s.running ? formatBytes(s.memoryBytes) : "-").padStart(8)} ${formatBytes(s.diskBytes).padStart(8)}  ${ago(s.lastUsed)}`,
+        )
       if (!found.length) say("no sandboxes")
+      else
+        say(
+          "disk is the checkout and dependencies; each also has a volume for its services' data. `docker system df -v` shows everything",
+        )
+      return 0
+    }
+    case "sleep": {
+      const record = await storedRecord(cwd, flags.run)
+      const policy = policyFromEnv()
+      await sleepContainer(record.container)
+      answer({ ok: true, asleep: record.container })
+      say(
+        `${record.container} is asleep: its memory is freed and its disk kept. Any sandbox command for run ${record.run} wakes it` +
+          (policy.ttlMs === null
+            ? "."
+            : `; it is removed after ${Math.round(policy.ttlMs / 3_600_000)} h asleep (PR2VIDEO_SANDBOX_TTL).`),
+      )
+      await sweep({ currentImage: await imageTag(), log: json ? undefined : say })
+      return 0
+    }
+    case "prune": {
+      const dryRun = flags["dry-run"] === true
+      const log = json ? undefined : say
+      if (flags.all) {
+        const removed = await pruneAll({ dryRun, log })
+        answer({ ok: true, dryRun, removed })
+        if (!removed.length) say("nothing of pr2video's in Docker")
+        else if (!dryRun)
+          say(
+            "done; the projects' .pr2video/ folders are untouched, and the next run builds the rest again",
+          )
+        return 0
+      }
+      const result = await sweep({ currentImage: await imageTag(), dryRun, checkCaches: true, log })
+      answer({ ok: true, dryRun, ...result })
+      const count = Object.values(result).reduce((n, list) => n + list.length, 0)
+      if (!count)
+        say("nothing to clean up under the policy (sandbox prune --all removes everything)")
       return 0
     }
     case "down": {
-      const record = await resolveRecord(cwd, flags.run).catch(async (error: Error) => {
-        // A stopped sandbox is still worth removing.
-        const { readRecord, currentRun } = await import("@pr2video/sandbox")
-        const { repoRoot } = await import("@pr2video/sandbox")
-        const repo = await repoRoot(cwd)
-        const run = flags.run ?? (await currentRun(repo))
-        if (!run) throw error
-        return readRecord(repo, run)
-      })
+      // Asleep or awake: never woken just to be removed.
+      const record = await storedRecord(cwd, flags.run)
       await down(record)
       answer({ ok: true, removed: record.container })
       say(`removed ${record.container} (its journal and logs stay in .pr2video/${record.run}/)`)

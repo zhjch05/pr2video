@@ -155,6 +155,18 @@ after the head commit, its first 10 characters, or `folder-...` for a folder). E
    viewport (a phone viewport gives a portrait video). Tell the user where the files are, the
    tour's length, and any scene you could not reach and why.
 
+7. **Put the sandbox to sleep** once the files are delivered:
+
+   ```bash
+   pr2video sandbox sleep
+   ```
+
+   It frees the sandbox's memory (1-2 GB) and keeps its disk, so changes the user asks for next
+   are quick: any `pr2video sandbox` or `record` command wakes it, with its services and servers
+   started again as they were. One asleep for three days is removed (its setup stays in
+   `.pr2video/<run>/`). Run `pr2video sandbox down` instead only when the user says they are done
+   with it.
+
 ## Rules
 
 - Run the project's code only through `pr2video sandbox exec` / `start`, never directly on the

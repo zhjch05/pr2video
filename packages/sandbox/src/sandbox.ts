@@ -11,6 +11,9 @@
  *
  * Every command the agent runs goes through `exec` or `start`; with `record`
  * it lands in the run's journal, which `replay` runs again on the base commit.
+ *
+ * A finished sandbox sleeps (`sleepContainer`) and any command wakes it; what
+ * is kept and for how long is in cleanup.ts.
  */
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -19,6 +22,18 @@ import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
+import {
+  AWAKE_CONTAINERS,
+  AWAKE_PROCESSES,
+  engineVolume,
+  LABEL,
+  MIRROR,
+  MIRROR_VOLUME,
+  NETWORK,
+  removeSandbox,
+  sweep,
+  USED_FILE,
+} from "./cleanup.ts"
 import { docker, dockerOrThrow, dockerReady } from "./docker.ts"
 import {
   readSecrets,
@@ -47,10 +62,7 @@ const git = promisify(execFile)
 
 export const HEAD_DIR = "/work/head"
 export const BASE_DIR = "/work/base"
-export const NETWORK = "pr2video"
-export const MIRROR = "pr2video-mirror"
 const MIRROR_URL = `http://${MIRROR}:5000`
-const LABEL = "pr2video.run"
 
 type Log = ((line: string) => void) | undefined
 
@@ -120,7 +132,7 @@ async function ensureMirror(log?: Log): Promise<void> {
     "-e",
     "REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io",
     "-v",
-    "pr2video-registry:/var/lib/registry",
+    `${MIRROR_VOLUME}:/var/lib/registry`,
     "registry:2",
   ])
 }
@@ -403,14 +415,25 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
 
   const state = await running(container)
   if (state !== null) {
-    if (!state) await dockerOrThrow(["start", container])
-    options.log?.(`sandbox ${container} is already up`)
-    return readRecord(repo, run)
+    const record = await readRecord(repo, run)
+    if (state) options.log?.(`sandbox ${container} is already up`)
+    else await wake(record, options.log)
+    await touch(container)
+    await sweep({ currentImage: await imageTag(), protect: run, log: options.log })
+    return record
   }
 
   const image = await ensureImage(options.log)
+  // Before adding one: sleep, remove and trim what the policy says (cleanup.ts).
+  await sweep({ currentImage: image, protect: run, log: options.log })
   await ensureMirror(options.log)
   options.log?.(`starting ${container}`)
+  // The sandbox's own Docker engine keeps its data in a named, labelled
+  // volume, so `down` and the sweep can always find it. A leftover from an
+  // earlier sandbox of the same run would bring back its old services.
+  const volume = engineVolume(run)
+  await docker(["volume", "rm", "-f", volume])
+  await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${run}`, volume])
   await dockerOrThrow([
     "run",
     "-d",
@@ -441,7 +464,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "pr2video-npm-cache:/cache/npm",
     // The inner engine's data: a volume, since overlayfs cannot sit on overlayfs.
     "-v",
-    "/var/lib/docker",
+    `${volume}:/var/lib/docker`,
     image,
   ])
 
@@ -450,8 +473,10 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "for i in $(seq 90); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; tail -20 /var/log/pr2video/dockerd.log; exit 1",
     { timeoutMs: 120_000 },
   )
-  if (dockerUp.code !== 0)
+  if (dockerUp.code !== 0) {
+    await removeSandbox(container, run)
     throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
+  }
 
   // Just the commits, without history: quick for a big repository, and all a
   // shallow or partial clone is sure to have. More history is a
@@ -492,7 +517,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const checkout = await inside(container, script, { timeoutMs: 600_000 })
   if (checkout.code !== 0) {
     // A sandbox with no checkout is no use, and would block the next `up`.
-    await docker(["rm", "-f", "-v", container])
+    await removeSandbox(container, run)
     throw new Error(
       `${folder ? "copying the folder" : "checking out"} failed: ${checkout.stderr.trim()}`,
     )
@@ -511,6 +536,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     createdAt: new Date().toISOString(),
   }
   await writeRecord(record)
+  await touch(container)
   await syncSecrets(record.container, await readSecrets(record.repo))
   if (options.from && options.from !== run) await adoptRun(record, options.from, options.log)
   return record
@@ -770,12 +796,20 @@ export async function start(
   refuseValues(command, secrets)
   await syncSecrets(record.container, secrets)
   await stop(record, name)
+  // How it was started, so a sandbox that slept starts it again the same way.
+  const how = JSON.stringify({
+    command,
+    cwd,
+    port: options.port ?? null,
+    path: options.path ?? null,
+  })
   const launched = await inside(
     record.container,
     `setsid nohup bash -lc '${WITH_SECRETS}' > /var/log/pr2video/${name}.log 2>&1 < /dev/null &
      echo $! > /run/pr2video/${name}.pid
+     printf '%s' "$PR2VIDEO_START" > /run/pr2video/${name}.start
      cat /run/pr2video/${name}.pid`,
-    { env: { PR2VIDEO_CMD: command }, cwd, timeoutMs: 30_000 },
+    { env: { PR2VIDEO_CMD: command, PR2VIDEO_START: how }, cwd, timeoutMs: 30_000 },
   )
   if (launched.code !== 0) throw new Error(`could not start ${name}: ${launched.stderr.trim()}`)
   const pid = Number.parseInt(launched.stdout.trim(), 10)
@@ -981,7 +1015,79 @@ export async function copyIn(
 }
 
 export async function down(record: SandboxRecord): Promise<void> {
-  await docker(["rm", "-f", "-v", record.container])
+  await removeSandbox(record.container, record.run)
+}
+
+/** Marks the sandbox as used now: the sweep puts unused ones to sleep. */
+async function touch(container: string): Promise<void> {
+  await docker(["exec", container, "bash", "-c", `mkdir -p /run/pr2video && touch ${USED_FILE}`])
+}
+
+/**
+ * Starts a sleeping sandbox again: its Docker engine, then the services and
+ * background processes that were running when it went to sleep, as they
+ * were started.
+ */
+export async function wake(record: SandboxRecord, log?: Log): Promise<void> {
+  log?.(`waking ${record.container} (it was asleep)`)
+  await dockerOrThrow(["start", record.container])
+  // The entrypoint starts the engine again. One stopped without shutting
+  // down (by Docker Desktop, or a crash) left its pid file, which on restart
+  // names the new engine itself (the same PID), so it refuses to start:
+  // clear the pid files and start it here, as the entrypoint does.
+  const ready = await inside(
+    record.container,
+    // (A dockerd that gave up stays a zombie, so "alive" skips state Z.)
+    `alive() { ps -C dockerd -o stat= | grep -qv '^Z'; }
+     for i in $(seq 15); do
+       docker info >/dev/null 2>&1 && exit 0
+       alive || break
+       sleep 1
+     done
+     if ! alive; then
+       rm -f /var/run/docker.pid /var/run/docker/containerd/containerd.pid
+       args=(--host=unix:///var/run/docker.sock)
+       if [ -n "\${PR2VIDEO_REGISTRY_MIRROR:-}" ]; then
+         args+=(--registry-mirror="$PR2VIDEO_REGISTRY_MIRROR" --insecure-registry="\${PR2VIDEO_REGISTRY_MIRROR#http://}")
+       fi
+       setsid nohup dockerd "\${args[@]}" >> /var/log/pr2video/dockerd.log 2>&1 < /dev/null &
+     fi
+     for i in $(seq 90); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done
+     tail -5 /var/log/pr2video/dockerd.log; exit 1`,
+    { timeoutMs: 150_000 },
+  )
+  if (ready.code !== 0)
+    throw new Error(`the sandbox's Docker engine did not start again:\n${ready.stdout}`)
+  const services = await inside(
+    record.container,
+    `ids=$(cat ${AWAKE_CONTAINERS} 2>/dev/null); rm -f ${AWAKE_CONTAINERS}
+     [ -z "$ids" ] || docker start $ids >/dev/null; echo $ids | wc -w`,
+    { timeoutMs: 180_000 },
+  )
+  const count = Number(services.stdout.trim()) || 0
+  if (count) log?.(`started its ${count} service container${count === 1 ? "" : "s"} again`)
+  const listed = await inside(
+    record.container,
+    `while read -r n; do [ -n "$n" ] && [ -f /run/pr2video/$n.start ] && printf '%s\t%s\n' "$n" "$(cat /run/pr2video/$n.start)"; done < ${AWAKE_PROCESSES} 2>/dev/null; rm -f ${AWAKE_PROCESSES}; true`,
+  )
+  for (const line of listed.stdout.split("\n").filter(Boolean)) {
+    const [name = "", json = "{}"] = line.split("\t")
+    const how = JSON.parse(json) as {
+      command: string
+      cwd: string
+      port: number | null
+      path: string | null
+    }
+    const started = await start(record, name, how.command, {
+      cwd: how.cwd,
+      port: how.port ?? undefined,
+      path: how.path ?? undefined,
+    })
+    log?.(
+      `started ${name} again${started.wait ? `: ${started.wait.status}` : ""}` +
+        (started.wait && !started.wait.ok ? ` (see pr2video sandbox logs ${name})` : ""),
+    )
+  }
 }
 
 export async function list(): Promise<
@@ -1004,16 +1110,32 @@ export async function list(): Promise<
     })
 }
 
-/** The sandbox a command means: `run`, else the repository's current one. */
-export async function resolveRecord(cwd: string, run?: string): Promise<SandboxRecord> {
+/**
+ * The sandbox a command means: `run`, else the repository's current one. A
+ * sleeping one is woken (`wake: false` to leave it).
+ */
+export async function resolveRecord(
+  cwd: string,
+  run?: string,
+  options: { wake?: boolean; log?: Log } = {},
+): Promise<SandboxRecord> {
   const repo = await repoRoot(cwd)
   const { currentRun } = await import("./state.ts")
   const chosen = run ?? (await currentRun(repo))
   if (!chosen) throw new Error("no sandbox yet: start one with `pr2video sandbox up`")
   const record = await readRecord(repo, validRun(chosen))
-  if ((await running(record.container)) !== true)
+  const state = await running(record.container)
+  if (state === null)
     throw new Error(
-      `sandbox ${record.container} is not running: \`pr2video sandbox up --run ${record.run}\``,
+      `sandbox ${record.container} was removed (asleep too long, or by down/prune); its recorded setup is kept: \`pr2video sandbox up --run ${record.run} ${record.head.folder ? "--folder" : `--head ${record.head.sha.slice(0, 12)}`}${record.base ? ` --base ${record.base.sha.slice(0, 12)}` : record.head.folder ? "" : " --no-base"}\`, then \`pr2video sandbox replay --side head\`, builds it again`,
     )
+  if (!state) {
+    if (options.wake === false)
+      throw new Error(
+        `sandbox ${record.container} is asleep: \`pr2video sandbox up --run ${record.run}\` wakes it`,
+      )
+    await wake(record, options.log ?? ((line) => console.error(`pr2video: ${line}`)))
+  }
+  await touch(record.container)
   return record
 }

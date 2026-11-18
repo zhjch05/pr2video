@@ -169,7 +169,11 @@ pr2video sandbox replay                              Re-run the recorded setup o
 pr2video sandbox save [--path <dir>]                 Keep the services' data for the next run
 pr2video sandbox up --from <run>                     Start from an earlier run's setup and data
 pr2video sandbox cp [--record] <host> <sandbox>     Copy a file in (journaled with --record)
-pr2video sandbox ps | logs | stop | journal [drop <n>] | status | ls | down
+pr2video sandbox ps | logs | stop | journal [drop <n>] | status
+pr2video sandbox ls [--all]                          Sandboxes, their memory, disk and last use
+pr2video sandbox sleep                               Free a sandbox's memory, keep its disk
+pr2video sandbox down                                Remove a sandbox
+pr2video sandbox prune [--all] [--dry-run]           Clean up now (see "Disk, memory and cleanup")
 
 pr2video scenes check [<scenes.json>]                Validate the scenes to film
 pr2video record [--side head|base] [--only <id,id>]  Record them in the sandbox's browser (rrweb)
@@ -199,6 +203,70 @@ only by you, never committed) and reach the sandbox's
 commands as environment variables. Recorded setup refers to them by name, and every log and piece of
 output shows `***` in their place. Give test-mode keys, not live ones: the app in the sandbox can
 use whatever it is given.
+
+### Disk, memory and cleanup
+
+What pr2video keeps in Docker, roughly, for a typical web app:
+
+| What | Size | Kept |
+|---|---|---|
+| A sandbox (per run): checkout and installed dependencies | 1-6 GB disk, 1-2 GB memory while running | Until the policy below removes it |
+| Its services' data (a database, their images) | up to a few GB | With its sandbox |
+| The sandbox image | about 2.5 GB | The current version; older ones are removed |
+| pnpm and npm caches (shared) | a few GB | Emptied above 10 GB |
+| `pr2video-mirror`, a cache of Docker Hub pulls (shared) | 1-2 GB, a few MB of memory | Emptied above 10 GB |
+
+The shared caches are what make later runs fast, for every project: installs come from the pnpm
+store and Docker images from the mirror. A sandbox itself only helps while you are still changing
+its tour. The setup it recorded, its saved data and the tour all live in your project's
+`.pr2video/<run>/` folder, not in Docker, so removing a sandbox loses none of them. A new run of
+the same project starts from them with `sandbox up --from <run>`.
+
+**The policy.** When the tour is delivered, the agent runs `pr2video sandbox sleep`: the container
+stops, freeing its memory, and keeps its disk. Any `sandbox` or `record` command wakes it, with its
+services and servers started again as they were. The rest happens whenever a sandbox starts or goes
+to sleep (there is no background job):
+
+- a sandbox left running and unused for **1 hour** is put to sleep;
+- one asleep for **3 days** is removed, and so is any asleep beyond the newest **3** (one still
+  running is never removed);
+- sandbox images no sandbox uses, and volumes whose sandbox is gone, are removed;
+- a shared cache above **10 GB** is emptied, at most once a day and only while no sandbox runs.
+
+**Changing it.** Set these in your shell profile (or for one command); each takes `off`:
+
+```bash
+export PR2VIDEO_SANDBOX_IDLE=20m      # sleep sooner (default 1h)
+export PR2VIDEO_SANDBOX_TTL=1d        # remove sooner (default 3d); 0 or off: never
+export PR2VIDEO_KEEP_SANDBOXES=1      # keep fewer (default 3); 0 keeps none asleep
+export PR2VIDEO_CACHE_MAX=4g          # smaller caches, slower installs (default 10g)
+```
+
+To keep everything for fast repeat runs on a big machine, raise them or set them to `off`.
+
+**By hand.** See what is there, then clean up now:
+
+```bash
+pr2video sandbox ls --all             # every project's sandboxes: memory, disk, last used
+pr2video sandbox prune --dry-run      # what the policy would do now, caches included
+pr2video sandbox prune                # do it
+pr2video sandbox down --run <run>     # remove one sandbox
+pr2video sandbox prune --all          # remove everything pr2video keeps in Docker
+```
+
+`prune --all` removes every sandbox (running ones too), the caches, the mirror, the images and
+the network; the projects' `.pr2video/` folders stay, and the next run builds the rest again (the
+image takes a few minutes). Without pr2video at hand, the same with Docker:
+
+```bash
+docker rm -f -v $(docker ps -aq --filter label=pr2video.run) pr2video-mirror
+docker volume rm $(docker volume ls -q --filter label=pr2video.run) pr2video-pnpm-store pr2video-npm-cache pr2video-registry
+docker rmi $(docker image ls -q pr2video-sandbox)
+```
+
+Sandboxes made by pr2video 0.0.8 or earlier kept their services' data in an unnamed volume, which
+`docker rm` without `-v` leaves behind. `docker volume prune` removes unnamed volumes no container
+uses, from every project on the machine, not only pr2video's: check `docker volume ls` first.
 
 ## Output
 

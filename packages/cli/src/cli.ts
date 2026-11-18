@@ -199,6 +199,7 @@ async function main() {
       from: { type: "string" },
       folder: { type: "boolean" },
       all: { type: "boolean" },
+      "dry-run": { type: "boolean" },
       data: { type: "boolean" },
       port: { type: "string" },
       tail: { type: "string" },

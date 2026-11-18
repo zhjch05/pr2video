@@ -13,8 +13,11 @@ Chromium lives in `/opt/pr2video`, apart from anything the project installs: a p
 `playwright install` cannot break recording. pnpm and npm caches persist
 across runs, and Docker Hub pulls go through a local cache.
 
-`pr2video sandbox down` removes the sandbox. It leaves one shared container running,
-`pr2video-mirror`, the Docker Hub pull cache every sandbox uses: that is expected, not a leftover.
+When the tour is delivered, `pr2video sandbox sleep` stops the sandbox (its memory freed, its
+disk kept); any sandbox command wakes it. `pr2video sandbox down` removes it. Either way one shared
+container keeps running, `pr2video-mirror`, the Docker Hub pull cache every sandbox uses: that is
+expected, not a leftover. Do not clean up other sandboxes or caches yourself (`sandbox prune`):
+the user's policy does that, and other runs may be using them.
 
 ## How commands are passed
 
