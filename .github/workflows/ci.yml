@@ -8,6 +8,10 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # onnxruntime-node (under kokoro-js, the voice) downloads CUDA binaries on any
+    # Linux x64 install; we never use them, and v1.21.0's download is gone (404).
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
