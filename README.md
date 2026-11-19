@@ -1,5 +1,14 @@
 # pr2video
 
+> [!WARNING]
+> **Early version.** pr2video is new and changing fast: expect bugs, rough edges and breaking
+> changes between versions. It runs the project's code in a Docker sandbox on your machine; use it
+> at your own risk, and check a tour before you share it.
+
+> [!NOTE]
+> **Web apps only, for now.** pr2video films apps with a browser UI. CLIs, libraries, APIs with no
+> page, and desktop or mobile apps are not supported yet: see [Scope](#scope).
+
 Show what your web app actually does, by running it and using it the way a person would, then
 recording that as a narrated tour: a replay of the real UI with zoom, highlights, captions and a
 voice, as a self-contained HTML file or an MP4. Tour what a pull request, a branch or your uncommitted
