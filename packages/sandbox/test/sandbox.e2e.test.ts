@@ -174,6 +174,27 @@ describe.runIf(enabled)("sandbox", () => {
     }
   }, 600_000)
 
+  it("gives the same commits in two folders a sandbox each", async () => {
+    const one = await repoWithTwoCommits()
+    const two = await mkdtemp(join(tmpdir(), "pr2video-clone-"))
+    execFileSync("git", ["clone", "-q", "-b", "feature", one, two], { stdio: "pipe" })
+    // No --run: both default to the head commit's run name.
+    const a = await up({ cwd: one, base: null })
+    try {
+      const b = await up({ cwd: two, base: null })
+      try {
+        expect(b.run).toBe(a.run)
+        expect(b.container).not.toBe(a.container)
+        await down(b)
+        expect((await exec(a, "cat index.html")).stdout).toContain("After")
+      } finally {
+        await down(b).catch(() => undefined)
+      }
+    } finally {
+      await down(a)
+    }
+  }, 600_000)
+
   it("mounts nothing of the host, is limited, unprivileged without services, and cannot reach another sandbox", async () => {
     const repo = await repoWithTwoCommits()
     const withCompose = await repoWithTwoCommits()
@@ -200,7 +221,9 @@ describe.runIf(enabled)("sandbox", () => {
       expect(info?.Mounts.filter((m) => m.Type === "bind")).toEqual([])
       expect(info?.HostConfig.Memory).toBe(8e9)
       expect(info?.HostConfig.PidsLimit).toBe(8192)
-      expect(info?.HostConfig.NetworkMode).toBe(sandboxNetwork(a.run))
+      expect(info?.HostConfig.NetworkMode).toBe(
+        sandboxNetwork(a.container.replace(/^pr2video-/, "")),
+      )
 
       // /src is the sandbox's own bare repository of the two commits, not the project folder.
       const src = await exec(a, "test -f /src/HEAD && ls /src | grep -c index.html; true")
@@ -212,7 +235,7 @@ describe.runIf(enabled)("sandbox", () => {
         await docker([
           "inspect",
           "--format",
-          `{{(index .NetworkSettings.Networks "${sandboxNetwork(b.run)}").IPAddress}}`,
+          `{{(index .NetworkSettings.Networks "${sandboxNetwork(b.container.replace(/^pr2video-/, ""))}").IPAddress}}`,
           b.container,
         ])
       ).stdout.trim()
@@ -237,7 +260,10 @@ describe.runIf(enabled)("sandbox", () => {
       await down(a)
       await down(b)
     }
-    expect((await docker(["network", "inspect", sandboxNetwork(a.run)])).code).not.toBe(0)
+    expect(
+      (await docker(["network", "inspect", sandboxNetwork(a.container.replace(/^pr2video-/, ""))]))
+        .code,
+    ).not.toBe(0)
   }, 900_000)
 
   it("waits for a server on ::1 only, and records a start only when its port answers", async () => {

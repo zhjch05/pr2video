@@ -398,8 +398,19 @@ async function defaultBase(repo: string, headSha: string, log: Log): Promise<str
   return null
 }
 
-function containerName(run: string): string {
-  return `pr2video-${run}`
+/**
+ * A new sandbox's container. Docker's names are machine-wide, so the name
+ * holds the project folder's hash as well as the run: the same pull request
+ * in two folders gets two sandboxes. Its engine volume and network are named
+ * after the same key (`dockerKey`).
+ */
+function containerName(repo: string, run: string): string {
+  return `pr2video-${run}-${createHash("sha256").update(repo).digest("hex").slice(0, 6)}`
+}
+
+/** The key a sandbox's label, engine volume and network are named by (just the run before 0.0.11). */
+function dockerKey(container: string): string {
+  return container.replace(/^pr2video-/, "")
 }
 
 export function validRun(run: string): string {
@@ -498,11 +509,19 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const run = validRun(
     options.run ?? (headSha ? headSha.slice(0, 10) : `folder-${Date.now().toString(36)}`),
   )
-  const container = containerName(run)
+  const existing = await readRecord(repo, run).catch(() => null)
+  // This folder's sandbox for the run, if it is still there; else a new one.
+  const kept = existing ? await running(existing.container) : null
+  const container = kept !== null && existing ? existing.container : containerName(repo, run)
+  const key = dockerKey(container)
 
-  const state = await running(container)
+  const state = kept !== null ? kept : await running(container)
   if (state !== null) {
-    const record = await readRecord(repo, run)
+    if (!existing)
+      throw new Error(
+        `a sandbox named ${container} exists, but this folder has no record of it: remove it with \`docker rm -f ${container}\`, or name another run with --run`,
+      )
+    const record = existing
     if (options.services && !hasEngine(record))
       throw new Error(
         `sandbox ${container} has no Docker engine (it started without services): \`pr2video sandbox down\` first, then \`sandbox up --services\` and \`sandbox replay --side head\``,
@@ -510,7 +529,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     if (state) options.log?.(`sandbox ${container} is already up`)
     else await wake(record, options.log)
     await touch(container)
-    await sweep({ currentImage: await imageTag(), protect: run, log: options.log })
+    await sweep({ currentImage: await imageTag(), protect: key, log: options.log })
     return record
   }
 
@@ -536,7 +555,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
 
   const image = await ensureImage(options.log)
   // Before adding one: sleep, remove and trim what the policy says (cleanup.ts).
-  await sweep({ currentImage: image, protect: run, log: options.log })
+  await sweep({ currentImage: image, protect: key, log: options.log })
   if (engine) await ensureMirror(options.log)
   options.log?.(
     `starting ${container} ${
@@ -550,11 +569,11 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   // The sandbox's own Docker engine keeps its data in a named, labelled
   // volume, so `down` and the sweep can always find it. A leftover from an
   // earlier sandbox of the same run would bring back its old services.
-  const volume = engineVolume(run)
+  const volume = engineVolume(key)
   await docker(["volume", "rm", "-f", volume])
-  if (engine) await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${run}`, volume])
-  const network = sandboxNetwork(run)
-  await createNetwork(network, run)
+  if (engine) await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${key}`, volume])
+  const network = sandboxNetwork(key)
+  await createNetwork(network, key)
   const cpus = await dockerCpus()
   await dockerOrThrow([
     "run",
@@ -566,7 +585,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "--hostname",
     "sandbox",
     "--label",
-    `${LABEL}=${run}`,
+    `${LABEL}=${key}`,
     // Memory, CPUs and processes for everything inside, its services included.
     ...limitFlags(limitsFromEnv(cpus), cpus),
     "--network",
@@ -597,7 +616,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
       { timeoutMs: 120_000 },
     )
     if (dockerUp.code !== 0) {
-      await removeSandbox(container, run)
+      await removeSandbox(container, key)
       throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
     }
     await connectMirror(container)
@@ -622,7 +641,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     }
     if (folderList) await tarInto(container, repo, HEAD_DIR, folderList)
   } catch (error) {
-    await removeSandbox(container, run)
+    await removeSandbox(container, key)
     throw error
   }
   const fetch = (shas: Array<string>) =>
@@ -651,7 +670,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const checkout = await inside(container, script, { timeoutMs: 600_000 })
   if (checkout.code !== 0) {
     // A sandbox with no checkout is no use, and would block the next `up`.
-    await removeSandbox(container, run)
+    await removeSandbox(container, key)
     throw new Error(
       `${folder ? "copying the folder" : "checking out"} failed: ${checkout.stderr.trim()}`,
     )
@@ -1157,7 +1176,7 @@ export async function copyIn(
 }
 
 export async function down(record: SandboxRecord): Promise<void> {
-  await removeSandbox(record.container, record.run)
+  await removeSandbox(record.container, dockerKey(record.container))
 }
 
 /** Marks the sandbox as used now: the sweep puts unused ones to sleep. */
