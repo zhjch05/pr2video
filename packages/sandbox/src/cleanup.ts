@@ -17,6 +17,8 @@
  * journal, saved data and tour live in the project's `.pr2video/` folder,
  * not in Docker, so removing a sandbox loses none of them.
  */
+
+import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -24,6 +26,7 @@ import { join } from "node:path"
 import { docker, dockerOrThrow } from "./docker.ts"
 
 export const LABEL = "pr2video.run"
+/** The network sandboxes made before 0.0.11 share; each new one has its own (`sandboxNetwork`). */
 export const NETWORK = "pr2video"
 export const MIRROR = "pr2video-mirror"
 export const MIRROR_VOLUME = "pr2video-registry"
@@ -34,6 +37,67 @@ export const USED_FILE = "/run/pr2video/last-used"
 /** What was running when the sandbox went to sleep, to start again when it wakes. */
 export const AWAKE_CONTAINERS = "/run/pr2video/awake-containers"
 export const AWAKE_PROCESSES = "/run/pr2video/awake-processes"
+
+/** Whether `name` is one of the pnpm/npm caches: the shared pair, or a project's own (`cacheVolumes`). */
+export function isCacheVolume(name: string): boolean {
+  return CACHE_VOLUMES.some((shared) => name === shared || name.startsWith(`${shared}-`))
+}
+
+/**
+ * The pnpm and npm cache volumes a sandbox of `repo` mounts. Shared by every
+ * project by default (installs reuse each other's downloads); with
+ * `PR2VIDEO_CACHE_SCOPE=project`, each project has its own pair, so one
+ * project's code cannot plant a package in the cache another project installs from.
+ */
+export function cacheVolumes(
+  repo: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { pnpm: string; npm: string } {
+  const scope = env.PR2VIDEO_CACHE_SCOPE?.trim().toLowerCase() || "shared"
+  if (scope !== "shared" && scope !== "project")
+    throw new Error(`PR2VIDEO_CACHE_SCOPE is shared or project (got "${env.PR2VIDEO_CACHE_SCOPE}")`)
+  const [pnpm, npm] = CACHE_VOLUMES
+  if (scope === "shared") return { pnpm, npm }
+  const id = createHash("sha256").update(repo).digest("hex").slice(0, 12)
+  return { pnpm: `${pnpm}-${id}`, npm: `${npm}-${id}` }
+}
+
+/**
+ * How a sandbox is isolated, from `docker info`'s runtimes and
+ * `PR2VIDEO_RUNTIME`: with Sysbox (`sysbox-runc`) the sandbox runs its own
+ * Docker engine without `--privileged`, in its own user namespace; otherwise
+ * a sandbox that needs services (an engine) is privileged, and one that does
+ * not is an ordinary container. `PR2VIDEO_RUNTIME=runc` turns Sysbox off;
+ * any other value names the runtime to use as Sysbox.
+ */
+export function sandboxRuntime(
+  runtimes: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const asked = env.PR2VIDEO_RUNTIME?.trim()
+  if (asked) {
+    if (asked === "runc" || OFF.test(asked)) return null
+    if (!runtimes.includes(asked))
+      throw new Error(
+        `PR2VIDEO_RUNTIME=${asked}, but Docker has no such runtime (it has ${runtimes.join(", ") || "none listed"})`,
+      )
+    return asked
+  }
+  return runtimes.includes("sysbox-runc") ? "sysbox-runc" : null
+}
+
+/** A Compose file, by its path in the project: the sign an app runs services in Docker. */
+const COMPOSE_FILE = /(^|\/)(docker-)?compose(\.[\w.-]+)?\.ya?ml$/
+
+/** Whether any of `files` is a Compose file (`compose.yaml`, `docker-compose.dev.yml`, ...). */
+export function needsServices(files: ReadonlyArray<string>): boolean {
+  return files.some((file) => COMPOSE_FILE.test(file) && !file.split("/").includes("node_modules"))
+}
+
+/** A sandbox's own network: it reaches the registry mirror and the internet, not other sandboxes. */
+export function sandboxNetwork(run: string): string {
+  return `pr2video-net-${run}`
+}
 
 /** The volume holding a sandbox's own Docker engine (its services' images, containers and data). */
 export function engineVolume(run: string): string {
@@ -110,6 +174,54 @@ export function policyFromEnv(env: NodeJS.ProcessEnv = process.env): Policy {
   if (env.PR2VIDEO_CACHE_MAX)
     policy.cacheMaxBytes = parseBytes(env.PR2VIDEO_CACHE_MAX, "PR2VIDEO_CACHE_MAX")
   return policy
+}
+
+/** What one sandbox may use; null: no limit. */
+export type Limits = {
+  memoryBytes: number | null
+  cpus: number | null
+  pids: number | null
+}
+
+/**
+ * The limits a new sandbox gets, with any of these set (each takes `off`):
+ * - `PR2VIDEO_SANDBOX_MEMORY` (default 8g): memory for everything in it, its services included
+ * - `PR2VIDEO_SANDBOX_CPUS` (default half of Docker's, at least 2)
+ * - `PR2VIDEO_SANDBOX_PIDS` (default 8192): processes and threads, against a fork bomb
+ */
+export function limitsFromEnv(dockerCpus: number, env: NodeJS.ProcessEnv = process.env): Limits {
+  const limits: Limits = {
+    memoryBytes: 8e9,
+    cpus: Math.max(2, Math.floor(dockerCpus / 2)),
+    pids: 8192,
+  }
+  if (env.PR2VIDEO_SANDBOX_MEMORY)
+    limits.memoryBytes = parseBytes(env.PR2VIDEO_SANDBOX_MEMORY, "PR2VIDEO_SANDBOX_MEMORY")
+  for (const [key, name, whole] of [
+    ["cpus", "PR2VIDEO_SANDBOX_CPUS", false],
+    ["pids", "PR2VIDEO_SANDBOX_PIDS", true],
+  ] as const) {
+    const text = env[name]?.trim()
+    if (!text) continue
+    if (OFF.test(text)) {
+      limits[key] = null
+      continue
+    }
+    const n = Number(text)
+    if (!(n > 0) || (whole && !Number.isInteger(n)))
+      throw new Error(`${name} is a ${whole ? "whole " : ""}number or off (got "${text}")`)
+    limits[key] = n
+  }
+  return limits
+}
+
+/** `docker run` flags for `limits`; a CPU limit above what Docker has is left out. */
+export function limitFlags(limits: Limits, dockerCpus: number): Array<string> {
+  return [
+    ...(limits.memoryBytes !== null ? ["--memory", String(Math.round(limits.memoryBytes))] : []),
+    ...(limits.cpus !== null && limits.cpus < dockerCpus ? ["--cpus", String(limits.cpus)] : []),
+    ...(limits.pids !== null ? ["--pids-limit", String(limits.pids)] : []),
+  ]
 }
 
 export type SandboxInfo = {
@@ -296,10 +408,17 @@ export async function sleepContainer(container: string): Promise<void> {
   await dockerOrThrow(["stop", "-t", "5", container])
 }
 
-/** Removes a sandbox and its Docker engine's volume. */
+/** Removes a sandbox, its Docker engine's volume and its network. */
 export async function removeSandbox(container: string, run: string): Promise<void> {
   await docker(["rm", "-f", "-v", container])
   await docker(["volume", "rm", "-f", engineVolume(run)])
+  await removeNetwork(sandboxNetwork(run))
+}
+
+async function removeNetwork(name: string): Promise<void> {
+  if ((await docker(["network", "inspect", name])).code !== 0) return
+  await docker(["network", "disconnect", "-f", name, MIRROR])
+  await docker(["network", "rm", name])
 }
 
 type Log = ((line: string) => void) | undefined
@@ -372,6 +491,16 @@ export async function sweep(options: {
       say(`${dry ? "would remove" : "removed"} the orphaned volume ${name}`)
       result.volumes.push(name)
     }
+    // Networks whose sandbox is gone.
+    const networks = (
+      await docker(["network", "ls", "--filter", `label=${LABEL}`, "--format", "{{.Name}}"])
+    ).stdout
+      .split("\n")
+      .filter((name) => name && ![...runs].some((run) => sandboxNetwork(run) === name))
+    for (const name of networks) {
+      if (!dry) await removeNetwork(name)
+      say(`${dry ? "would remove" : "removed"} the orphaned network ${name}`)
+    }
 
     // Caches, only while no sandbox runs (one might be installing from them).
     const awake = remaining.filter((s) => s.running && !result.slept.includes(s.container))
@@ -418,7 +547,7 @@ export async function cacheSizes(
   const existing = new Set(
     (await docker(["volume", "ls", "-q"])).stdout.split("\n").filter(Boolean),
   )
-  const names = [...CACHE_VOLUMES, MIRROR_VOLUME].filter((name) => existing.has(name))
+  const names = [...existing].filter((name) => isCacheVolume(name) || name === MIRROR_VOLUME)
   return Promise.all(
     names.map(async (volume) => {
       const du = await docker(
@@ -475,7 +604,8 @@ export async function pruneAll(
   }
   const volumes = new Set((await docker(["volume", "ls", "-q"])).stdout.split("\n"))
   const labelled = (await docker(["volume", "ls", "-q", "--filter", `label=${LABEL}`])).stdout
-  for (const name of [...CACHE_VOLUMES, MIRROR_VOLUME, ...labelled.split("\n")]) {
+  const caches = [...volumes].filter(isCacheVolume)
+  for (const name of [...caches, MIRROR_VOLUME, ...labelled.split("\n")]) {
     if (!name || !volumes.has(name)) continue
     volumes.delete(name)
     if (!dry) await docker(["volume", "rm", "-f", name])
@@ -489,9 +619,13 @@ export async function pruneAll(
     if (!dry) await docker(["rmi", "-f", tag.endsWith(":<none>") ? id : tag])
     note(`image ${tag.endsWith(":<none>") ? id : tag}`)
   }
-  if ((await docker(["network", "inspect", NETWORK])).code === 0) {
-    if (!dry) await docker(["network", "rm", NETWORK])
-    note(`network ${NETWORK}`)
+  const networks = (
+    await docker(["network", "ls", "--filter", `label=${LABEL}`, "--format", "{{.Name}}"])
+  ).stdout
+  for (const name of [...networks.split("\n"), NETWORK]) {
+    if (!name || (await docker(["network", "inspect", name])).code !== 0) continue
+    if (!dry) await docker(["network", "rm", name])
+    note(`network ${name}`)
   }
   return removed
 }

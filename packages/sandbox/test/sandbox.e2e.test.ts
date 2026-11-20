@@ -10,6 +10,7 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 
 import {
+  copyOut,
   docker,
   down,
   engineVolume,
@@ -20,6 +21,7 @@ import {
   resolveRecord,
   type SandboxRecord,
   sandboxes,
+  sandboxNetwork,
   sleepContainer,
   start,
   up,
@@ -62,7 +64,12 @@ describe.runIf(enabled)("sandbox", () => {
 
   it("checks out head and base, runs commands, serves, nests Docker and replays on the base", async () => {
     const repo = await repoWithTwoCommits()
-    record = await up({ cwd: repo, base: "main", run: `test-${Date.now().toString(36)}` })
+    record = await up({
+      cwd: repo,
+      base: "main",
+      services: true,
+      run: `test-${Date.now().toString(36)}`,
+    })
     expect(record.base?.dir).toBe("/work/base")
 
     const node = await exec(record, "node --version && cat index.html", { record: false })
@@ -92,7 +99,12 @@ describe.runIf(enabled)("sandbox", () => {
 
   it("sleeps, wakes with its services and servers, and down removes its volume", async () => {
     const repo = await repoWithTwoCommits()
-    const box = await up({ cwd: repo, base: null, run: `sleep-${Date.now().toString(36)}` })
+    const box = await up({
+      cwd: repo,
+      base: null,
+      services: true,
+      run: `sleep-${Date.now().toString(36)}`,
+    })
     try {
       const served = await start(box, "web", "python3 -m http.server 8081", { port: 8081 })
       expect(served.wait?.ok).toBe(true)
@@ -161,6 +173,72 @@ describe.runIf(enabled)("sandbox", () => {
       await down(folder)
     }
   }, 600_000)
+
+  it("mounts nothing of the host, is limited, unprivileged without services, and cannot reach another sandbox", async () => {
+    const repo = await repoWithTwoCommits()
+    const withCompose = await repoWithTwoCommits()
+    await writeFile(join(withCompose, "docker-compose.yml"), "services: {}\n")
+    execFileSync("git", ["-C", withCompose, "add", "."])
+    execFileSync("git", ["-C", withCompose, "commit", "-q", "-m", "compose"])
+    const a = await up({ cwd: repo, base: "main", run: `test-guard-a-${Date.now().toString(36)}` })
+    const b = await up({
+      cwd: withCompose,
+      base: null,
+      run: `test-guard-b-${Date.now().toString(36)}`,
+    })
+    try {
+      const [info] = JSON.parse((await docker(["inspect", a.container])).stdout) as Array<{
+        Mounts: Array<{ Type: string }>
+        HostConfig: { Memory: number; PidsLimit: number; NetworkMode: string; Privileged: boolean }
+      }>
+      // No Compose file: an ordinary container, with no engine to run Docker with.
+      expect(a.engine).toBe(false)
+      expect(info?.HostConfig.Privileged).toBe(false)
+      await expect(exec(a, "docker ps")).rejects.toThrow(/no Docker engine/)
+      // A Compose file: its own engine.
+      expect(b.engine).toBe(true)
+      expect(info?.Mounts.filter((m) => m.Type === "bind")).toEqual([])
+      expect(info?.HostConfig.Memory).toBe(8e9)
+      expect(info?.HostConfig.PidsLimit).toBe(8192)
+      expect(info?.HostConfig.NetworkMode).toBe(sandboxNetwork(a.run))
+
+      // /src is the sandbox's own bare repository of the two commits, not the project folder.
+      const src = await exec(a, "test -f /src/HEAD && ls /src | grep -c index.html; true")
+      expect(src.stdout.trim()).toBe("0")
+
+      const served = await start(b, "web", "python3 -m http.server 8082", { port: 8082 })
+      expect(served.wait?.ok).toBe(true)
+      const ip = (
+        await docker([
+          "inspect",
+          "--format",
+          `{{(index .NetworkSettings.Networks "${sandboxNetwork(b.run)}").IPAddress}}`,
+          b.container,
+        ])
+      ).stdout.trim()
+      expect(ip).toMatch(/^\d+\.\d+\.\d+\.\d+$/)
+      const reach = await exec(
+        a,
+        `curl -s --max-time 5 -o /dev/null -w '%{http_code}' http://${ip}:8082/`,
+      )
+      expect(reach.stdout.trim()).not.toBe("200")
+
+      // A symlink the sandbox leaves is refused on the way out, and nothing is copied.
+      await exec(
+        a,
+        "mkdir -p /tmp/out && echo ok > /tmp/out/a.txt && ln -s /etc/passwd /tmp/out/link",
+      )
+      const local = join(await mkdtemp(join(tmpdir(), "pr2video-out-")), "out")
+      const copied = await copyOut(a.container, "/tmp/out", local)
+      expect(copied.code).toBe(1)
+      expect(copied.stderr).toMatch(/refused/)
+      await expect(import("node:fs/promises").then((fs) => fs.stat(local))).rejects.toThrow()
+    } finally {
+      await down(a)
+      await down(b)
+    }
+    expect((await docker(["network", "inspect", sandboxNetwork(a.run)])).code).not.toBe(0)
+  }, 900_000)
 
   it("waits for a server on ::1 only, and records a start only when its port answers", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pr2video-start-"))

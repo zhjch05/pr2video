@@ -196,6 +196,8 @@ async function main() {
       head: { type: "string" },
       base: { type: "string" },
       "no-base": { type: "boolean" },
+      services: { type: "boolean" },
+      "no-services": { type: "boolean" },
       from: { type: "string" },
       folder: { type: "boolean" },
       all: { type: "boolean" },

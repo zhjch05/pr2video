@@ -1,5 +1,7 @@
 /** The host's `docker` CLI, without a shell. */
 import { spawn } from "node:child_process"
+import { lstat, readdir, rm } from "node:fs/promises"
+import { join } from "node:path"
 
 export type DockerResult = {
   code: number | null
@@ -86,4 +88,35 @@ export async function dockerReady(): Promise<{ ok: true } | { ok: false; reason:
   } catch (error) {
     return { ok: false, reason: (error as Error).message }
   }
+}
+
+/**
+ * Copies `from` out of a container to `to` on the host, and refuses anything
+ * but plain files and folders: the sandbox runs code we do not trust, and a
+ * symlink it left (to `~/.ssh/id_ed25519`, say) would be followed by whatever
+ * reads the copy next, a tour embedding a "recording" included.
+ */
+export async function copyOut(container: string, from: string, to: string): Promise<DockerResult> {
+  const result = await docker(["cp", `${container}:${from}`, to])
+  if (result.code !== 0) return result
+  const bad = await notPlain(to)
+  if (bad === null) return result
+  await rm(to, { recursive: true, force: true })
+  return {
+    ...result,
+    code: 1,
+    stderr: `refused what the sandbox wrote: ${bad} is not a plain file or folder (a symlink or a device), so nothing was copied`,
+  }
+}
+
+/** The first path under `path` (itself included) that is not a plain file or folder; null if none. */
+async function notPlain(path: string): Promise<string | null> {
+  const info = await lstat(path)
+  if (info.isFile()) return null
+  if (!info.isDirectory()) return path
+  for (const entry of await readdir(path)) {
+    const bad = await notPlain(join(path, entry))
+    if (bad !== null) return bad
+  }
+  return null
 }

@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  CACHE_VOLUMES,
+  cacheVolumes,
   DEFAULT_POLICY,
   dockerBytes,
+  isCacheVolume,
+  limitFlags,
+  limitsFromEnv,
+  needsServices,
   parseBytes,
   parseDuration,
   planSweep,
   policyFromEnv,
   type SandboxInfo,
+  sandboxRuntime,
 } from "../src/cleanup.ts"
 
 const HOUR = 3_600_000
@@ -98,5 +105,83 @@ describe("planSweep", () => {
   it("does nothing with every rule off", () => {
     const off = { idleMs: null, ttlMs: null, keep: null, cacheMaxBytes: null }
     expect(planSweep([box("a", true, 500), box("b", false, 500)], off, NOW)).toEqual([])
+  })
+})
+
+describe("sandbox limits", () => {
+  it("defaults to 8 GB, half of Docker's CPUs (at least 2) and 8192 processes", () => {
+    expect(limitsFromEnv(10, {})).toEqual({ memoryBytes: 8e9, cpus: 5, pids: 8192 })
+    expect(limitsFromEnv(2, {}).cpus).toBe(2)
+  })
+
+  it("takes settings, and off for each", () => {
+    expect(
+      limitsFromEnv(8, {
+        PR2VIDEO_SANDBOX_MEMORY: "4g",
+        PR2VIDEO_SANDBOX_CPUS: "1.5",
+        PR2VIDEO_SANDBOX_PIDS: "off",
+      }),
+    ).toEqual({ memoryBytes: 4e9, cpus: 1.5, pids: null })
+    expect(limitsFromEnv(8, { PR2VIDEO_SANDBOX_MEMORY: "off" }).memoryBytes).toBeNull()
+    expect(() => limitsFromEnv(8, { PR2VIDEO_SANDBOX_PIDS: "1.5" })).toThrow(/whole number/)
+    expect(() => limitsFromEnv(8, { PR2VIDEO_SANDBOX_CPUS: "lots" })).toThrow(/number or off/)
+  })
+
+  it("turns them into docker run flags, leaving out a CPU limit Docker cannot give", () => {
+    expect(limitFlags({ memoryBytes: 8e9, cpus: 5, pids: 8192 }, 10)).toEqual([
+      "--memory",
+      "8000000000",
+      "--cpus",
+      "5",
+      "--pids-limit",
+      "8192",
+    ])
+    expect(limitFlags({ memoryBytes: null, cpus: 4, pids: null }, 4)).toEqual([])
+  })
+})
+
+describe("isolation", () => {
+  it("gives a sandbox an engine only for a Compose file", () => {
+    for (const file of [
+      "compose.yaml",
+      "docker-compose.yml",
+      "docker-compose.dev.yml",
+      "deploy/compose.override.yaml",
+    ])
+      expect(needsServices(["src/index.ts", file])).toBe(true)
+    for (const file of [
+      "Dockerfile",
+      "src/compose.ts",
+      "my-compose.yml",
+      "node_modules/x/compose.yml",
+    ])
+      expect(needsServices([file])).toBe(false)
+  })
+
+  it("uses Sysbox where Docker has it, unless told not to", () => {
+    expect(sandboxRuntime(["runc"], {})).toBeNull()
+    expect(sandboxRuntime(["runc", "sysbox-runc"], {})).toBe("sysbox-runc")
+    expect(sandboxRuntime(["runc", "sysbox-runc"], { PR2VIDEO_RUNTIME: "runc" })).toBeNull()
+    expect(sandboxRuntime(["runc", "sysbox-runc"], { PR2VIDEO_RUNTIME: "off" })).toBeNull()
+    expect(sandboxRuntime(["runc", "my-sysbox"], { PR2VIDEO_RUNTIME: "my-sysbox" })).toBe(
+      "my-sysbox",
+    )
+    expect(() => sandboxRuntime(["runc"], { PR2VIDEO_RUNTIME: "sysbox-runc" })).toThrow(
+      /no such runtime/,
+    )
+  })
+
+  it("shares the caches by default, and gives each project its own on request", () => {
+    expect(cacheVolumes("/a", {})).toEqual({ pnpm: CACHE_VOLUMES[0], npm: CACHE_VOLUMES[1] })
+    const a = cacheVolumes("/a", { PR2VIDEO_CACHE_SCOPE: "project" })
+    const b = cacheVolumes("/b", { PR2VIDEO_CACHE_SCOPE: "project" })
+    expect(a.pnpm).toMatch(/^pr2video-pnpm-store-[0-9a-f]{12}$/)
+    expect(a).not.toEqual(b)
+    expect(cacheVolumes("/a", { PR2VIDEO_CACHE_SCOPE: "project" })).toEqual(a)
+    expect(isCacheVolume(a.pnpm) && isCacheVolume(a.npm) && isCacheVolume(CACHE_VOLUMES[0])).toBe(
+      true,
+    )
+    expect(isCacheVolume("pr2video-docker-run1")).toBe(false)
+    expect(() => cacheVolumes("/a", { PR2VIDEO_CACHE_SCOPE: "repo" })).toThrow(/shared or project/)
   })
 })

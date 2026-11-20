@@ -1,13 +1,16 @@
 /**
- * One sandbox per run: a privileged container from the pr2video image, with
- * its own Docker engine inside, the pull request's head checked out at
- * `/work/head` and its base at `/work/base`. Nothing of the pull request runs
- * on the host.
+ * One sandbox per run: a container from the pr2video image, with the pull
+ * request's head checked out at `/work/head` and its base at `/work/base`.
+ * Nothing of the pull request runs on the host. An app that runs services in
+ * Docker (a Compose file, or `up --services`) gets its own Docker engine
+ * inside, which needs a privileged container - or Sysbox, when Docker has it.
+ * Any other app gets an ordinary, unprivileged container with no engine.
  *
  * The host keeps a pull-through registry mirror (Docker Hub pulls are cached
  * across runs) and the pnpm/npm caches as named volumes. The checkout lives on
- * the container's own filesystem: the repository is mounted read-only only to
- * be fetched from, since bind mounts are slow on macOS.
+ * the container's own filesystem. Nothing of the host is mounted: the code in
+ * the sandbox runs as root, so the commits (or the folder's files) are
+ * streamed in instead (source.ts).
  *
  * Every command the agent runs goes through `exec` or `start`; with `record`
  * it lands in the run's journal, which `replay` runs again on the base commit.
@@ -17,7 +20,7 @@
  */
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -25,16 +28,21 @@ import { promisify } from "node:util"
 import {
   AWAKE_CONTAINERS,
   AWAKE_PROCESSES,
+  cacheVolumes,
   engineVolume,
   LABEL,
+  limitFlags,
+  limitsFromEnv,
   MIRROR,
   MIRROR_VOLUME,
-  NETWORK,
+  needsServices,
   removeSandbox,
+  sandboxNetwork,
+  sandboxRuntime,
   sweep,
   USED_FILE,
 } from "./cleanup.ts"
-import { docker, dockerOrThrow, dockerReady } from "./docker.ts"
+import { copyOut, docker, dockerOrThrow, dockerReady } from "./docker.ts"
 import {
   readSecrets,
   refuseValues,
@@ -43,9 +51,11 @@ import {
   syncSecrets,
   WITH_SECRETS,
 } from "./secrets.ts"
+import { commitsRepo, folderFiles, tarInto } from "./source.ts"
 import {
   appendJournal,
   type DataManifest,
+  hasEngine,
   type JournalEntry,
   readDataManifest,
   readJournal,
@@ -93,26 +103,97 @@ export async function ensureImage(log?: Log): Promise<string> {
 }
 
 /**
- * Creates the shared network. Docker picks its subnet from its default pools,
- * which a machine with many networks has used up ("all predefined address
- * pools have been fully subnetted"); then try a few private /24s of our own.
+ * Creates a sandbox's own network, so sandboxes cannot reach each other.
+ * Docker picks its subnet from its default pools, which a machine with many
+ * networks has used up ("all predefined address pools have been fully
+ * subnetted"); then try a few private /24s of our own.
  */
-async function createNetwork(): Promise<void> {
-  const first = await docker(["network", "create", NETWORK])
+async function createNetwork(name: string, run: string): Promise<void> {
+  if ((await docker(["network", "inspect", name])).code === 0) return
+  const create = (extra: Array<string>) =>
+    docker(["network", "create", "--label", `${LABEL}=${run}`, ...extra, name])
+  const first = await create([])
   if (first.code === 0) return
   if (!/fully subnetted|overlap/i.test(first.stderr))
     throw new Error(`docker network create failed: ${first.stderr.trim()}`)
-  for (let third = 77; third < 97; third++) {
-    const subnet = `10.217.${third}.0/24`
-    const attempt = await docker(["network", "create", "--subnet", subnet, NETWORK])
-    if (attempt.code === 0) return
+  for (let third = 77; third < 127; third++) {
+    if ((await create(["--subnet", `10.217.${third}.0/24`])).code === 0) return
   }
-  throw new Error(`could not create the ${NETWORK} network: ${first.stderr.trim()}`)
+  throw new Error(`could not create the ${name} network: ${first.stderr.trim()}`)
 }
 
-/** The network every sandbox shares with the registry mirror, and the mirror itself. */
+/** The container runtimes Docker has (`runc`, and `sysbox-runc` where Sysbox is installed). */
+async function dockerRuntimes(): Promise<Array<string>> {
+  const out = (await docker(["info", "--format", "{{json .Runtimes}}"])).stdout.trim()
+  try {
+    return Object.keys(JSON.parse(out) as Record<string, unknown>)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Whether an app needs services, from its files: a Compose file in the
+ * commits (or the folder) means it runs some in Docker.
+ */
+async function wantsServices(
+  repo: string,
+  commits: ReadonlyArray<string>,
+  folder: ReadonlyArray<string> | null,
+): Promise<boolean> {
+  if (folder && needsServices(folder)) return true
+  for (const sha of commits) {
+    const files = await gitOut(repo, ["ls-tree", "-r", "--name-only", sha]).catch(() => "")
+    if (needsServices(files.split("\n"))) return true
+  }
+  return false
+}
+
+/**
+ * Refuses a command that runs Docker in a sandbox without an engine, with
+ * how to get one, rather than letting it fail on a missing socket.
+ */
+/** A command that runs Docker (`docker compose up`, `sudo docker run`), not one that only names it. */
+const RUNS_DOCKER = /(^|[\s;&|(`])(sudo\s+)?docker(-compose)?(\s|$)/
+
+function refuseWithoutEngine(record: SandboxRecord, command: string): void {
+  if (hasEngine(record) || !RUNS_DOCKER.test(command)) return
+  throw new Error(
+    `this sandbox has no Docker engine: it was started without services (no Compose file in the project), as an unprivileged container. For an app that runs services in Docker: \`pr2video sandbox down\`, \`pr2video sandbox up --services\` (with the same --head/--base/--folder), then \`pr2video sandbox replay --side head\` to run the recorded steps again`,
+  )
+}
+
+/** How many CPUs Docker has (the Docker Desktop VM's, on a Mac). */
+async function dockerCpus(): Promise<number> {
+  const n = Number((await docker(["info", "--format", "{{.NCPU}}"])).stdout.trim())
+  return n > 0 ? n : 2
+}
+
+/**
+ * Joins the registry mirror to each of the sandbox's networks, so its Docker
+ * engine pulls through it; it is the one thing on them besides the sandbox.
+ */
+async function connectMirror(container: string): Promise<void> {
+  const networks = (
+    await docker([
+      "inspect",
+      "--format",
+      "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}",
+      container,
+    ])
+  ).stdout
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  for (const network of networks) {
+    const joined = await docker(["network", "connect", network, MIRROR])
+    if (joined.code !== 0 && !/already exists|already attached/i.test(joined.stderr))
+      throw new Error(`could not join the registry mirror to ${network}: ${joined.stderr.trim()}`)
+  }
+}
+
+/** The registry mirror, a cache of Docker Hub pulls every sandbox shares. */
 async function ensureMirror(log?: Log): Promise<void> {
-  if ((await docker(["network", "inspect", NETWORK])).code !== 0) await createNetwork()
   const state = await docker(["inspect", "--format", "{{.State.Running}}", MIRROR])
   if (state.stdout.trim() === "true") return
   if (state.code === 0) {
@@ -125,15 +206,14 @@ async function ensureMirror(log?: Log): Promise<void> {
     "-d",
     "--name",
     MIRROR,
-    "--network",
-    NETWORK,
     "--restart",
     "unless-stopped",
     "-e",
     "REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io",
     "-v",
     `${MIRROR_VOLUME}:/var/lib/registry`,
-    "registry:2",
+    // Pinned by digest (`docker buildx imagetools inspect registry:2`).
+    "registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
   ])
 }
 
@@ -367,6 +447,13 @@ export type UpOptions = {
    * `base` names a commit. Always on outside a git repository.
    */
   folder?: boolean | undefined
+  /**
+   * Give the sandbox its own Docker engine, for an app that runs services
+   * (a database) in Docker: a privileged container, unless Docker has Sysbox.
+   * By default, only when the project has a Compose file (or `from`'s
+   * sandbox had an engine). `false`: never.
+   */
+  services?: boolean | undefined
   log?: Log
 }
 
@@ -416,6 +503,10 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const state = await running(container)
   if (state !== null) {
     const record = await readRecord(repo, run)
+    if (options.services && !hasEngine(record))
+      throw new Error(
+        `sandbox ${container} has no Docker engine (it started without services): \`pr2video sandbox down\` first, then \`sandbox up --services\` and \`sandbox replay --side head\``,
+      )
     if (state) options.log?.(`sandbox ${container} is already up`)
     else await wake(record, options.log)
     await touch(container)
@@ -423,29 +514,63 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     return record
   }
 
+  const folderList = folder ? await folderFiles(repo, isGit, FOLDER_EXCLUDES) : null
+  const runtime = sandboxRuntime(await dockerRuntimes())
+  const caches = cacheVolumes(repo)
+  // A run started from: an engine if it had one, or (from before 0.0.11,
+  // when every sandbox did) if a recorded step runs Docker.
+  const fromEngine =
+    options.from && options.from !== run
+      ? (await readRecord(repo, options.from).then(
+          (from) => from.engine === true,
+          () => false,
+        )) ||
+        (await readJournal(repo, options.from)).some(
+          (step) => step.kind !== "copy" && RUNS_DOCKER.test(step.command),
+        )
+      : false
+  const services =
+    options.services ?? (fromEngine || (await wantsServices(repo, commits, folderList)))
+  // Sysbox runs an engine safely, so a sandbox under it always has one.
+  const engine = runtime !== null || services
+
   const image = await ensureImage(options.log)
   // Before adding one: sleep, remove and trim what the policy says (cleanup.ts).
   await sweep({ currentImage: image, protect: run, log: options.log })
-  await ensureMirror(options.log)
-  options.log?.(`starting ${container}`)
+  if (engine) await ensureMirror(options.log)
+  options.log?.(
+    `starting ${container} ${
+      runtime
+        ? `under ${runtime}, with its own Docker engine`
+        : engine
+          ? "privileged, with its own Docker engine for the app's services"
+          : "unprivileged, without a Docker engine (no Compose file; `up --services` gives it one)"
+    }`,
+  )
   // The sandbox's own Docker engine keeps its data in a named, labelled
   // volume, so `down` and the sweep can always find it. A leftover from an
   // earlier sandbox of the same run would bring back its old services.
   const volume = engineVolume(run)
   await docker(["volume", "rm", "-f", volume])
-  await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${run}`, volume])
+  if (engine) await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${run}`, volume])
+  const network = sandboxNetwork(run)
+  await createNetwork(network, run)
+  const cpus = await dockerCpus()
   await dockerOrThrow([
     "run",
     "-d",
-    "--privileged",
+    ...(runtime ? ["--runtime", runtime] : engine ? ["--privileged"] : []),
+    ...(engine ? [] : ["-e", "PR2VIDEO_ENGINE=off"]),
     "--name",
     container,
     "--hostname",
     "sandbox",
     "--label",
     `${LABEL}=${run}`,
+    // Memory, CPUs and processes for everything inside, its services included.
+    ...limitFlags(limitsFromEnv(cpus), cpus),
     "--network",
-    NETWORK,
+    network,
     "-e",
     `PR2VIDEO_REGISTRY_MIRROR=${MIRROR_URL}`,
     "-e",
@@ -457,41 +582,55 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "-e",
     "CI=1",
     "-v",
-    `${repo}:/src:ro`,
+    `${caches.pnpm}:/cache/pnpm`,
     "-v",
-    "pr2video-pnpm-store:/cache/pnpm",
-    "-v",
-    "pr2video-npm-cache:/cache/npm",
+    `${caches.npm}:/cache/npm`,
     // The inner engine's data: a volume, since overlayfs cannot sit on overlayfs.
-    "-v",
-    `${volume}:/var/lib/docker`,
+    ...(engine ? ["-v", `${volume}:/var/lib/docker`] : []),
     image,
   ])
 
-  const dockerUp = await inside(
-    container,
-    "for i in $(seq 90); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; tail -20 /var/log/pr2video/dockerd.log; exit 1",
-    { timeoutMs: 120_000 },
-  )
-  if (dockerUp.code !== 0) {
-    await removeSandbox(container, run)
-    throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
+  if (engine) {
+    const dockerUp = await inside(
+      container,
+      "for i in $(seq 90); do docker info >/dev/null 2>&1 && exit 0; sleep 1; done; tail -20 /var/log/pr2video/dockerd.log; exit 1",
+      { timeoutMs: 120_000 },
+    )
+    if (dockerUp.code !== 0) {
+      await removeSandbox(container, run)
+      throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
+    }
+    await connectMirror(container)
   }
 
-  // Just the commits, without history: quick for a big repository, and all a
-  // shallow or partial clone is sure to have. More history is a
-  // \`git fetch /src <ref>\` away.
+  options.log?.(
+    folder
+      ? `copying the folder ${repo}${baseSha ? ` and checking out base ${baseSha.slice(0, 10)}` : ""}`
+      : `checking out ${headSha?.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
+  )
+  // Nothing of the host is mounted (source.ts): the commits come in as a bare
+  // repository at /src holding just them, without history, and a folder as
+  // the files git would keep (tracked and untracked, not ignored).
+  try {
+    if (commits.length) {
+      const bare = await commitsRepo(repo, commits)
+      try {
+        await tarInto(container, bare, "/src")
+      } finally {
+        await rm(bare, { recursive: true, force: true })
+      }
+    }
+    if (folderList) await tarInto(container, repo, HEAD_DIR, folderList)
+  } catch (error) {
+    await removeSandbox(container, run)
+    throw error
+  }
   const fetch = (shas: Array<string>) =>
-    `git fetch -q --no-tags --depth 1 --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' /src ${shas.join(" ")}`
-  const excludes = FOLDER_EXCLUDES.map((name) => `--exclude=${name}`).join(" ")
+    `git -c safe.directory='*' fetch -q --no-tags --depth 1 /src ${shas.join(" ")}`
   const script = folder
     ? [
         "set -eo pipefail",
         `mkdir -p ${HEAD_DIR}`,
-        // In git, what git would keep (tracked and untracked, not ignored); otherwise all but the usual caches.
-        isGit
-          ? `git -c safe.directory='*' -C /src ls-files -z -co --exclude-standard | tar -C /src --null --ignore-failed-read --warning=no-failed-read ${excludes} -cf - -T - | tar -C ${HEAD_DIR} -xf -`
-          : `tar -C /src ${excludes} -cf - . | tar -C ${HEAD_DIR} -xf -`,
         `cd ${HEAD_DIR}`,
         // A commit of the snapshot, so the app's own git commands work and changes made in the sandbox show in git status.
         "git init -q",
@@ -509,11 +648,6 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
         `git checkout -q --detach ${headSha}`,
         baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
       ].join("\n")
-  options.log?.(
-    folder
-      ? `copying the folder ${repo}${baseSha ? ` and checking out base ${baseSha.slice(0, 10)}` : ""}`
-      : `checking out ${headSha?.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
-  )
   const checkout = await inside(container, script, { timeoutMs: 600_000 })
   if (checkout.code !== 0) {
     // A sandbox with no checkout is no use, and would block the next `up`.
@@ -534,6 +668,8 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
       : { ref: options.head ?? "HEAD", sha: headSha ?? "", dir: HEAD_DIR },
     base: baseRef && baseSha ? { ref: baseRef, sha: baseSha, dir: BASE_DIR } : null,
     createdAt: new Date().toISOString(),
+    engine,
+    runtime,
   }
   await writeRecord(record)
   await touch(container)
@@ -612,7 +748,9 @@ export async function saveData(
 ): Promise<DataManifest> {
   for (const path of paths)
     if (!path.startsWith("/")) throw new Error(`a saved path must be absolute (got "${path}")`)
-  const listed = await inside(record.container, "docker volume ls -q")
+  const listed = hasEngine(record)
+    ? await inside(record.container, "docker volume ls -q")
+    : { code: 0, stdout: "", stderr: "" }
   if (listed.code !== 0) throw new Error(`listing volumes failed: ${listed.stderr.trim()}`)
   const volumes = listed.stdout.split("\n").filter(Boolean)
   if (!volumes.length && !paths.length)
@@ -627,7 +765,7 @@ export async function saveData(
     [
       "set -e",
       "status=0",
-      "running=$(docker ps -q)",
+      hasEngine(record) ? "running=$(docker ps -q)" : "running=",
       '[ -z "$running" ] || docker stop -t 30 $running >/dev/null',
       `tar -czpf /tmp/pr2video-data.tgz -C / ${members.map(shellWord).join(" ")} || status=$?`,
       '[ -z "$running" ] || docker start $running >/dev/null',
@@ -637,7 +775,8 @@ export async function saveData(
   )
   if (saved.code !== 0) throw new Error(`saving the data failed: ${saved.stderr.trim()}`)
   const dir = runDir(record.repo, record.run)
-  await dockerOrThrow(["cp", `${record.container}:/tmp/pr2video-data.tgz`, join(dir, "data.tgz")])
+  const copied = await copyOut(record.container, "/tmp/pr2video-data.tgz", join(dir, "data.tgz"))
+  if (copied.code !== 0) throw new Error(`saving the data failed: ${copied.stderr.trim()}`)
   await inside(record.container, "rm -f /tmp/pr2video-data.tgz")
   const manifest: DataManifest = {
     steps: (await readJournal(record.repo, record.run)).length,
@@ -681,6 +820,7 @@ export async function exec(
   } = {},
 ): Promise<ExecResult> {
   const cwd = options.cwd ?? record.head.dir
+  refuseWithoutEngine(record, command)
   const secrets = await readSecrets(record.repo)
   refuseValues(command, secrets)
   // The file may have been edited by hand since: every command sees it as it is now.
@@ -791,6 +931,7 @@ export async function start(
   } = {},
 ): Promise<{ pid: number; wait: WaitResult | null; recorded: boolean }> {
   validName(name)
+  refuseWithoutEngine(record, command)
   const cwd = options.cwd ?? record.head.dir
   const secrets = await readSecrets(record.repo)
   refuseValues(command, secrets)
@@ -915,11 +1056,12 @@ export async function replay(
   // The services the other side started (a database from docker compose):
   // the steps start them again, and a fixed container_name would clash.
   // Their volumes stay, so saved and seeded data is not lost.
-  await inside(
-    record.container,
-    'ids=$(docker ps -aq); [ -z "$ids" ] || docker rm -f $ids >/dev/null; docker network prune -f >/dev/null 2>&1; true',
-    { timeoutMs: 120_000 },
-  )
+  if (hasEngine(record))
+    await inside(
+      record.container,
+      'ids=$(docker ps -aq); [ -z "$ids" ] || docker rm -f $ids >/dev/null; docker network prune -f >/dev/null 2>&1; true',
+      { timeoutMs: 120_000 },
+    )
   const steps: Array<ReplayStep> = []
   for (const [index, original] of journal.entries()) {
     const entry = side === "base" && base ? rebase(original, record.head.dir, base.dir) : original
@@ -1031,6 +1173,19 @@ async function touch(container: string): Promise<void> {
 export async function wake(record: SandboxRecord, log?: Log): Promise<void> {
   log?.(`waking ${record.container} (it was asleep)`)
   await dockerOrThrow(["start", record.container])
+  // Every process from before the sleep is gone and PIDs start over, so an
+  // old pid file can name a new process (a service container's, say), which
+  // `start` would kill as the old one when it stops that name first.
+  await inside(record.container, "rm -f /run/pr2video/*.pid")
+  if (hasEngine(record)) await wakeEngine(record, log)
+  await restartProcesses(record, log)
+}
+
+/** The engine of a sandbox that woke, and the service containers that were running. */
+async function wakeEngine(record: SandboxRecord, log?: Log): Promise<void> {
+  // The mirror may have been removed (`prune --all`) or made again since.
+  await ensureMirror(log)
+  await connectMirror(record.container)
   // The entrypoint starts the engine again. One stopped without shutting
   // down (by Docker Desktop, or a crash) left its pid file, which on restart
   // names the new engine itself (the same PID), so it refuses to start:
@@ -1066,6 +1221,10 @@ export async function wake(record: SandboxRecord, log?: Log): Promise<void> {
   )
   const count = Number(services.stdout.trim()) || 0
   if (count) log?.(`started its ${count} service container${count === 1 ? "" : "s"} again`)
+}
+
+/** The background processes that were running when the sandbox went to sleep. */
+async function restartProcesses(record: SandboxRecord, log?: Log): Promise<void> {
   const listed = await inside(
     record.container,
     `while read -r n; do [ -n "$n" ] && [ -f /run/pr2video/$n.start ] && printf '%s\t%s\n' "$n" "$(cat /run/pr2video/$n.start)"; done < ${AWAKE_PROCESSES} 2>/dev/null; rm -f ${AWAKE_PROCESSES}; true`,

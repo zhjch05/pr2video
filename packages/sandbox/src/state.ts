@@ -23,7 +23,19 @@ export const sandboxRecordSchema = z.object({
   }),
   base: z.object({ ref: z.string(), sha: z.string(), dir: z.string() }).nullable(),
   createdAt: z.string(),
+  /**
+   * Whether the sandbox runs its own Docker engine (for an app's services);
+   * absent on sandboxes from before 0.0.11, which always did.
+   */
+  engine: z.boolean().optional(),
+  /** The container runtime when not Docker's default (`sysbox-runc`). */
+  runtime: z.string().nullable().optional(),
 })
+
+/** Whether `record`'s sandbox has a Docker engine inside. */
+export function hasEngine(record: Pick<SandboxRecord, "engine">): boolean {
+  return record.engine !== false
+}
 export type SandboxRecord = z.infer<typeof sandboxRecordSchema>
 
 /**

@@ -40,6 +40,25 @@ function escapeHtml(text: string): string {
   )
 }
 
+/**
+ * What the tour page may load: only what is inside it. The recording is a
+ * page we did not write, and an image or stylesheet in it pointing at another
+ * server would be fetched by everyone who opens the tour (a tracking pixel).
+ * Its images and fonts are already inlined as data URLs, so nothing is lost.
+ * Links still open: navigating is not loading.
+ */
+export const TOUR_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src data: blob:",
+  "font-src data:",
+  "media-src data: blob:",
+  "connect-src data: blob:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ")
+
 /** The whole tour as one HTML document: the player's script and styles, and its data, inline. */
 export function tourHtml(data: PlayerData, bundle: { js: string; css: string }): string {
   return `<!doctype html>
@@ -48,6 +67,7 @@ export function tourHtml(data: PlayerData, bundle: { js: string; css: string }):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="pr2video">
+<meta http-equiv="Content-Security-Policy" content="${TOUR_CSP}">
 <title>${escapeHtml(data.tour.title)}</title>
 <style>${bundle.css}</style>
 </head>

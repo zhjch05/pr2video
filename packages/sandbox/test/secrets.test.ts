@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -9,7 +9,11 @@ import {
   readSecrets,
   refuseValues,
   scrub,
+  scrubFolder,
+  scrubJson,
+  secretsAbove,
   secretsIn,
+  secretsInJson,
   secretsPath,
   shellEnv,
   writeSecrets,
@@ -55,5 +59,40 @@ describe("secrets", () => {
 
   it("quotes values for the shell", () => {
     expect(shellEnv({ A: "it's $x" })).toBe("export A='it'\\''s $x'")
+  })
+})
+
+describe("secrets in recordings", () => {
+  const secrets = { KEY: 'sk_"live"\\x', SHORT: "1" }
+
+  it("finds and replaces a value plain or JSON-escaped", () => {
+    const json = JSON.stringify([{ text: `key: ${secrets.KEY}` }])
+    expect(json).not.toContain(secrets.KEY)
+    expect(secretsInJson(json, secrets)).toEqual(["KEY"])
+    const scrubbed = scrubJson(json, secrets)
+    expect(JSON.parse(scrubbed)).toEqual([{ text: "key: ***" }])
+    expect(secretsInJson('plain sk_"live"\\x', secrets)).toEqual(["KEY"])
+  })
+
+  it("scrubs a recording's JSON files and names what it found", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr2video-rec-"))
+    await mkdir(join(dir, "scene"))
+    await writeFile(join(dir, "scene", "events.json"), JSON.stringify([{ v: secrets.KEY }]))
+    await writeFile(join(dir, "scene", "result.json"), JSON.stringify({ ok: 1 }))
+    await writeFile(join(dir, "scene", "shot.png"), secrets.KEY)
+    expect(await scrubFolder(dir, secrets)).toEqual(["KEY"])
+    expect(await readFile(join(dir, "scene", "events.json"), "utf8")).toBe('[{"v":"***"}]')
+    expect(await scrubFolder(dir, secrets)).toEqual([])
+  })
+
+  it("finds the project's secrets above a tour", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "pr2video-repo-"))
+    await writeSecrets(repo, { KEY: "abcdef" })
+    await mkdir(join(repo, ".pr2video", "run1"), { recursive: true })
+    expect(await secretsAbove(join(repo, ".pr2video", "run1", "tour.json"))).toEqual({
+      KEY: "abcdef",
+    })
+    const elsewhere = await mkdtemp(join(tmpdir(), "pr2video-else-"))
+    expect(await secretsAbove(join(elsewhere, "tour.json"))).toEqual({})
   })
 })
