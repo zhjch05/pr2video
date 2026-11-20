@@ -1173,6 +1173,10 @@ async function touch(container: string): Promise<void> {
 export async function wake(record: SandboxRecord, log?: Log): Promise<void> {
   log?.(`waking ${record.container} (it was asleep)`)
   await dockerOrThrow(["start", record.container])
+  // Every process from before the sleep is gone and PIDs start over, so an
+  // old pid file can name a new process (a service container's, say), which
+  // `start` would kill as the old one when it stops that name first.
+  await inside(record.container, "rm -f /run/pr2video/*.pid")
   if (hasEngine(record)) await wakeEngine(record, log)
   await restartProcesses(record, log)
 }
