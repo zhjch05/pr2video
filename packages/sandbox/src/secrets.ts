@@ -7,8 +7,8 @@
  * Recorded steps name them (`$STRIPE_SECRET_KEY`) and never hold them, and
  * every log and every piece of output shows `***` where a value was.
  */
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { access, chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { dirname, extname, join } from "node:path"
 
 import { docker } from "./docker.ts"
 import { STATE_DIR } from "./state.ts"
@@ -99,6 +99,74 @@ export function secretsIn(text: string, secrets: Secrets): Array<string> {
   return scrubbable(secrets)
     .filter(([, value]) => text.includes(value))
     .map(([name]) => name)
+}
+
+/**
+ * The forms a value takes in JSON text: as it is, and escaped as a JSON
+ * string would hold it (quotes, backslashes, newlines, `<` as `\u003c`).
+ */
+function jsonForms(value: string): Array<string> {
+  const escaped = JSON.stringify(value).slice(1, -1)
+  return [...new Set([value, escaped, escaped.replace(/</g, "\\u003c").replace(/>/g, "\\u003e")])]
+}
+
+/** The secrets whose values appear in JSON `text`, plain or escaped. */
+export function secretsInJson(text: string, secrets: Secrets): Array<string> {
+  return scrubbable(secrets)
+    .filter(([, value]) => jsonForms(value).some((form) => text.includes(form)))
+    .map(([name]) => name)
+}
+
+/** JSON `text` with every secret's value, plain or escaped, replaced by `***`. */
+export function scrubJson(text: string, secrets: Secrets): string {
+  let out = text
+  for (const [, value] of scrubbable(secrets))
+    for (const form of jsonForms(value)) out = out.split(form).join("***")
+  return out
+}
+
+/**
+ * Replaces every secret's value with `***` in the JSON files under `dir` (a
+ * recording's rrweb events, its results): a page that showed a key, or a
+ * field it was typed into, must not carry it into a tour. Returns the names
+ * of the secrets that were there.
+ */
+export async function scrubFolder(dir: string, secrets: Secrets): Promise<Array<string>> {
+  if (!scrubbable(secrets).length) return []
+  const found = new Set<string>()
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    if (!entry.isFile() || ![".json", ".jsonl"].includes(extname(entry.name))) continue
+    const path = join(entry.parentPath, entry.name)
+    const text = await readFile(path, "utf8")
+    const names = secretsInJson(text, secrets)
+    if (!names.length) continue
+    for (const name of names) found.add(name)
+    await writeFile(path, scrubJson(text, secrets))
+  }
+  return [...found].sort()
+}
+
+/**
+ * The secrets of the project a file under `.pr2video/` (a tour) belongs to:
+ * the nearest folder above it with `.pr2video/secrets.env`. None when there
+ * is none (a tour copied elsewhere).
+ */
+export async function secretsAbove(path: string): Promise<Secrets> {
+  let dir = dirname(path)
+  for (;;) {
+    const file = join(dir, STATE_DIR, SECRETS_FILE)
+    if (
+      await access(file).then(
+        () => true,
+        () => false,
+      )
+    )
+      return parseEnvFile(await readFile(file, "utf8"))
+    const parent = dirname(dir)
+    if (parent === dir) return {}
+    dir = parent
+  }
 }
 
 /** Refuses a command that holds a secret's value: it would land in the journal and the logs. */

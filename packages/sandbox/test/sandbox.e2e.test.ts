@@ -64,7 +64,12 @@ describe.runIf(enabled)("sandbox", () => {
 
   it("checks out head and base, runs commands, serves, nests Docker and replays on the base", async () => {
     const repo = await repoWithTwoCommits()
-    record = await up({ cwd: repo, base: "main", run: `test-${Date.now().toString(36)}` })
+    record = await up({
+      cwd: repo,
+      base: "main",
+      services: true,
+      run: `test-${Date.now().toString(36)}`,
+    })
     expect(record.base?.dir).toBe("/work/base")
 
     const node = await exec(record, "node --version && cat index.html", { record: false })
@@ -94,7 +99,12 @@ describe.runIf(enabled)("sandbox", () => {
 
   it("sleeps, wakes with its services and servers, and down removes its volume", async () => {
     const repo = await repoWithTwoCommits()
-    const box = await up({ cwd: repo, base: null, run: `sleep-${Date.now().toString(36)}` })
+    const box = await up({
+      cwd: repo,
+      base: null,
+      services: true,
+      run: `sleep-${Date.now().toString(36)}`,
+    })
     try {
       const served = await start(box, "web", "python3 -m http.server 8081", { port: 8081 })
       expect(served.wait?.ok).toBe(true)
@@ -164,15 +174,29 @@ describe.runIf(enabled)("sandbox", () => {
     }
   }, 600_000)
 
-  it("mounts nothing of the host, is limited, and cannot reach another sandbox", async () => {
+  it("mounts nothing of the host, is limited, unprivileged without services, and cannot reach another sandbox", async () => {
     const repo = await repoWithTwoCommits()
+    const withCompose = await repoWithTwoCommits()
+    await writeFile(join(withCompose, "docker-compose.yml"), "services: {}\n")
+    execFileSync("git", ["-C", withCompose, "add", "."])
+    execFileSync("git", ["-C", withCompose, "commit", "-q", "-m", "compose"])
     const a = await up({ cwd: repo, base: "main", run: `test-guard-a-${Date.now().toString(36)}` })
-    const b = await up({ cwd: repo, base: null, run: `test-guard-b-${Date.now().toString(36)}` })
+    const b = await up({
+      cwd: withCompose,
+      base: null,
+      run: `test-guard-b-${Date.now().toString(36)}`,
+    })
     try {
       const [info] = JSON.parse((await docker(["inspect", a.container])).stdout) as Array<{
         Mounts: Array<{ Type: string }>
-        HostConfig: { Memory: number; PidsLimit: number; NetworkMode: string }
+        HostConfig: { Memory: number; PidsLimit: number; NetworkMode: string; Privileged: boolean }
       }>
+      // No Compose file: an ordinary container, with no engine to run Docker with.
+      expect(a.engine).toBe(false)
+      expect(info?.HostConfig.Privileged).toBe(false)
+      await expect(exec(a, "docker ps")).rejects.toThrow(/no Docker engine/)
+      // A Compose file: its own engine.
+      expect(b.engine).toBe(true)
       expect(info?.Mounts.filter((m) => m.Type === "bind")).toEqual([])
       expect(info?.HostConfig.Memory).toBe(8e9)
       expect(info?.HostConfig.PidsLimit).toBe(8192)

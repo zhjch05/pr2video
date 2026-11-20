@@ -46,6 +46,8 @@ export type SandboxFlags = {
   head?: string | undefined
   base?: string | undefined
   "no-base"?: boolean | undefined
+  services?: boolean | undefined
+  "no-services"?: boolean | undefined
   port?: string | undefined
   tail?: string | undefined
   name?: string | undefined
@@ -65,7 +67,12 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
                                                 no git needed; no base unless --base names a commit).
                                                 Outside a git repository, up always does this;
                                                 --from starts from an earlier run's setup and saved data
-                                                and replays it on the head
+                                                and replays it on the head.
+                                                --services gives the sandbox its own Docker engine, for an
+                                                app that runs services (a database) in Docker: on by itself
+                                                when the project has a Compose file; --no-services: never.
+                                                With an engine the sandbox is privileged (unless Docker has
+                                                Sysbox); without one it is an ordinary container
   pr2video sandbox exec [--cwd <dir>] [--record [--data]] [--timeout <s>] -- <command>
                                                 Run a command inside; --record adds it to the setup
                                                 journal if it succeeds; --data marks a step that only
@@ -99,8 +106,19 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   Cleanup policy (environment variables): PR2VIDEO_SANDBOX_IDLE=1h puts an unused running sandbox
   to sleep; PR2VIDEO_SANDBOX_TTL=3d removes one asleep that long; PR2VIDEO_KEEP_SANDBOXES=3 keeps at
   most that many; PR2VIDEO_CACHE_MAX=10g empties a shared cache above that. Each takes "off".
+  Each sandbox is limited to PR2VIDEO_SANDBOX_MEMORY=8g, PR2VIDEO_SANDBOX_CPUS (half of Docker's)
+  and PR2VIDEO_SANDBOX_PIDS=8192. PR2VIDEO_CACHE_SCOPE=project gives each project its own pnpm and
+  npm caches instead of sharing them. PR2VIDEO_RUNTIME=runc does not use Sysbox where it is installed.
 
 ${ENV_HELP}`
+
+/** How the sandbox is isolated, in a line. */
+function isolation(record: SandboxRecord): string {
+  if (record.runtime) return `isolated by ${record.runtime}, with its own Docker engine`
+  return record.engine === false
+    ? "unprivileged, no Docker engine (`up --services` for an app with services in Docker)"
+    : "privileged, with its own Docker engine for the app's services"
+}
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
@@ -192,6 +210,7 @@ export async function sandboxCommand(
         base: flags["no-base"] ? null : flags.base,
         from: flags.from,
         folder: flags.folder,
+        services: flags["no-services"] ? false : flags.services,
         log: json ? undefined : say,
       })
       if (flags.from) {
@@ -218,6 +237,7 @@ export async function sandboxCommand(
             ? `, base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`
             : ", no base"),
       )
+      say(isolation(record))
       say(`run ${record.run}: write scenes and the tour in ${runFolder(cwd, record)}`)
       return 0
     }
@@ -382,6 +402,7 @@ export async function sandboxCommand(
       const found = await processes(record)
       answer({ ...record, processes: found })
       say(`${record.container} (run ${record.run}), image ${record.image}`)
+      say(isolation(record))
       say(`${headLabel(record)} at ${record.head.dir}`)
       if (record.base)
         say(`base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`)

@@ -17,6 +17,8 @@
  * journal, saved data and tour live in the project's `.pr2video/` folder,
  * not in Docker, so removing a sandbox loses none of them.
  */
+
+import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -35,6 +37,62 @@ export const USED_FILE = "/run/pr2video/last-used"
 /** What was running when the sandbox went to sleep, to start again when it wakes. */
 export const AWAKE_CONTAINERS = "/run/pr2video/awake-containers"
 export const AWAKE_PROCESSES = "/run/pr2video/awake-processes"
+
+/** Whether `name` is one of the pnpm/npm caches: the shared pair, or a project's own (`cacheVolumes`). */
+export function isCacheVolume(name: string): boolean {
+  return CACHE_VOLUMES.some((shared) => name === shared || name.startsWith(`${shared}-`))
+}
+
+/**
+ * The pnpm and npm cache volumes a sandbox of `repo` mounts. Shared by every
+ * project by default (installs reuse each other's downloads); with
+ * `PR2VIDEO_CACHE_SCOPE=project`, each project has its own pair, so one
+ * project's code cannot plant a package in the cache another project installs from.
+ */
+export function cacheVolumes(
+  repo: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { pnpm: string; npm: string } {
+  const scope = env.PR2VIDEO_CACHE_SCOPE?.trim().toLowerCase() || "shared"
+  if (scope !== "shared" && scope !== "project")
+    throw new Error(`PR2VIDEO_CACHE_SCOPE is shared or project (got "${env.PR2VIDEO_CACHE_SCOPE}")`)
+  const [pnpm, npm] = CACHE_VOLUMES
+  if (scope === "shared") return { pnpm, npm }
+  const id = createHash("sha256").update(repo).digest("hex").slice(0, 12)
+  return { pnpm: `${pnpm}-${id}`, npm: `${npm}-${id}` }
+}
+
+/**
+ * How a sandbox is isolated, from `docker info`'s runtimes and
+ * `PR2VIDEO_RUNTIME`: with Sysbox (`sysbox-runc`) the sandbox runs its own
+ * Docker engine without `--privileged`, in its own user namespace; otherwise
+ * a sandbox that needs services (an engine) is privileged, and one that does
+ * not is an ordinary container. `PR2VIDEO_RUNTIME=runc` turns Sysbox off;
+ * any other value names the runtime to use as Sysbox.
+ */
+export function sandboxRuntime(
+  runtimes: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const asked = env.PR2VIDEO_RUNTIME?.trim()
+  if (asked) {
+    if (asked === "runc" || OFF.test(asked)) return null
+    if (!runtimes.includes(asked))
+      throw new Error(
+        `PR2VIDEO_RUNTIME=${asked}, but Docker has no such runtime (it has ${runtimes.join(", ") || "none listed"})`,
+      )
+    return asked
+  }
+  return runtimes.includes("sysbox-runc") ? "sysbox-runc" : null
+}
+
+/** A Compose file, by its path in the project: the sign an app runs services in Docker. */
+const COMPOSE_FILE = /(^|\/)(docker-)?compose(\.[\w.-]+)?\.ya?ml$/
+
+/** Whether any of `files` is a Compose file (`compose.yaml`, `docker-compose.dev.yml`, ...). */
+export function needsServices(files: ReadonlyArray<string>): boolean {
+  return files.some((file) => COMPOSE_FILE.test(file) && !file.split("/").includes("node_modules"))
+}
 
 /** A sandbox's own network: it reaches the registry mirror and the internet, not other sandboxes. */
 export function sandboxNetwork(run: string): string {
@@ -489,7 +547,7 @@ export async function cacheSizes(
   const existing = new Set(
     (await docker(["volume", "ls", "-q"])).stdout.split("\n").filter(Boolean),
   )
-  const names = [...CACHE_VOLUMES, MIRROR_VOLUME].filter((name) => existing.has(name))
+  const names = [...existing].filter((name) => isCacheVolume(name) || name === MIRROR_VOLUME)
   return Promise.all(
     names.map(async (volume) => {
       const du = await docker(
@@ -546,7 +604,8 @@ export async function pruneAll(
   }
   const volumes = new Set((await docker(["volume", "ls", "-q"])).stdout.split("\n"))
   const labelled = (await docker(["volume", "ls", "-q", "--filter", `label=${LABEL}`])).stdout
-  for (const name of [...CACHE_VOLUMES, MIRROR_VOLUME, ...labelled.split("\n")]) {
+  const caches = [...volumes].filter(isCacheVolume)
+  for (const name of [...caches, MIRROR_VOLUME, ...labelled.split("\n")]) {
     if (!name || !volumes.has(name)) continue
     volumes.delete(name)
     if (!dry) await docker(["volume", "rm", "-f", name])

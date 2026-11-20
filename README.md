@@ -74,8 +74,9 @@ voice and the video. No account and no API key: every voice is free and runs on 
 - **Node.js 24 or newer** (with npm and npx).
 - **Docker, running**: Docker Desktop on macOS or Windows, Docker Engine on Linux. Every run starts
   one container, and your project is installed, built and served inside it, never on your machine.
-  The container runs its own Docker engine (for the project's databases and services), so it must
-  be allowed to run **privileged**; rootless Docker and Podman are untested. The first run builds a
+  For a project with a Compose file the container runs its own Docker engine (for its databases
+  and services), so it must be allowed to run **privileged** (or under Sysbox); other projects get
+  an ordinary container. Rootless Docker and Podman are untested. The first run builds a
   sandbox image of about 2.5 GB (a few minutes); later runs reuse it.
 - **A coding agent** that runs shell commands: Claude Code (plugin), or Codex, Cursor, Gemini CLI
   and the others that read `SKILL.md` skills. It uses your own model account; pr2video makes no
@@ -192,11 +193,11 @@ pr2video tour draft [--compare] [--fresh]            A tour.json from the record
 ## The sandbox
 
 Your project's code runs in Docker, not directly on your machine (but read [Security](#security)
-before running code you do not trust). Each run gets one Docker container (`--privileged`,
-needed for Docker-in-Docker) with the head at `/work/head` (a commit, or with `--folder` a copy of
-the folder as it is, uncommitted files included) and the base, when there is one, at `/work/base`, its own
-Docker engine for the project's services (`docker compose` works inside), Node 24, Python and
-Chromium. A local registry mirror caches Docker Hub pulls, and pnpm/npm caches persist across runs.
+before running code you do not trust). Each run gets one Docker container with the head at `/work/head` (a commit, or with `--folder` a
+copy of the folder as it is, uncommitted files included) and the base, when there is one, at
+`/work/base`, Node 24, Python and Chromium. A project with a Compose file (or `up --services`)
+also gets its own Docker engine for its services (`docker compose` works inside), which makes the
+container `--privileged` unless Docker has Sysbox; see [Security](#security). A local registry mirror caches Docker Hub pulls, and pnpm/npm caches persist across runs.
 The image (about 2.5 GB) builds on first use.
 
 **Secrets.** The agent generates or fakes what it can (session secrets, a local database, a stub for
@@ -281,11 +282,22 @@ uses, from every project on the machine, not only pr2video's: check `docker volu
 ### Security
 
 **The sandbox keeps a project from making a mess of your machine; it is not a security boundary
-against code written to escape it.** It is a `--privileged` container (the app's own Docker needs
-that), and privileged code running as root can take over whatever runs Docker: on Linux, your
-computer; with Docker Desktop, its VM, which can see the folders you share with Docker (by default
-your whole home folder). Run pr2video on code you would run yourself anyway: your own work, your
-team's pull requests. For a stranger's pull request, see "Untrusted code" below.
+against code written to escape it.** How tight it is depends on the app:
+
+- **An app without services in Docker** (no Compose file) gets an ordinary, unprivileged
+  container: no Docker engine inside, Docker's default seccomp profile and capabilities. Getting
+  out of it takes a kernel or Docker bug.
+- **An app with a Compose file** (or `sandbox up --services`) gets its own Docker engine, which
+  needs a `--privileged` container. Privileged code running as root can take over whatever runs
+  Docker: on Linux, your computer; with Docker Desktop, its VM, which can see the folders you
+  share with Docker (by default your whole home folder).
+- **With Sysbox installed** (Linux), every sandbox runs under it instead (`--runtime=sysbox-runc`):
+  its own Docker engine, without `--privileged`, in its own user namespace. pr2video finds it in
+  `docker info`; `PR2VIDEO_RUNTIME=runc` turns that off.
+
+`pr2video sandbox status` says which one a sandbox is. Run pr2video on code you would run yourself
+anyway: your own work, your team's pull requests. For a stranger's pull request, see "Untrusted
+code" below.
 
 What pr2video does to limit the damage:
 
@@ -309,9 +321,13 @@ What pr2video does to limit the damage:
 - **The tour page loads nothing from outside.** A Content-Security-Policy keeps the recorded page's
   images, fonts and stylesheets from reaching any server when someone opens the tour; the replay
   runs no scripts.
-- **Secrets** go in through stdin, never on a command line, and are scrubbed from all output. Every
-  command in the sandbox can read them, and the sandbox can reach the internet: give test-mode or
-  restricted keys only.
+- **Secrets** go in through stdin, never on a command line, and are scrubbed from all output. A
+  value a recording caught on the page is replaced with `***`, and `render` refuses a tour that
+  still holds one. Every command in the sandbox can read them, and the sandbox can reach the
+  internet: give test-mode or restricted keys only.
+- **Caches:** the pnpm and npm caches are shared by every project, so installs are quick. With
+  `PR2VIDEO_CACHE_SCOPE=project` each project gets its own, so one project's code cannot plant a
+  package another project installs.
 - Images are pinned by digest.
 
 What it does not do: limit outbound network traffic (installs and the app's own APIs need it), and
@@ -323,7 +339,8 @@ on Docker Desktop the sandbox can reach services on your machine through `host.d
   shares them); in Resources, File sharing, share only the folders Docker needs instead of your whole
   home folder; on a Business plan, turn on Enhanced Container Isolation, which confines privileged
   containers to their own user namespace.
-- **Linux:** use rootless Docker, or the Sysbox runtime, rather than a root Docker daemon.
+- **Linux:** install [Sysbox](https://github.com/nestybox/sysbox) (pr2video uses it by itself), or
+  use rootless Docker, rather than a privileged container on a root Docker daemon.
 - **Your agent:** keep its permission prompts on. The skill only runs a project's code through
   `pr2video sandbox`, but a project's files could try to talk an agent into more.
 

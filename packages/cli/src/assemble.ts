@@ -8,6 +8,7 @@ import { dirname, extname, join } from "node:path"
 import { gzipSync } from "node:zlib"
 
 import { type PlayerData, tourHtml } from "@pr2video/player"
+import { secretsAbove, secretsInJson } from "@pr2video/sandbox"
 import { screenshotMoments, tourProblems, tourSchema } from "@pr2video/tour"
 
 import { type Asset, assetPath } from "./assets.ts"
@@ -38,7 +39,8 @@ async function readEvents(
 }
 
 export async function playerData(tourPath: string): Promise<PlayerData> {
-  const input = JSON.parse(await readFile(tourPath, "utf8")) as unknown
+  const tourText = await readFile(tourPath, "utf8")
+  const input = JSON.parse(tourText) as unknown
   const problems = tourProblems(input)
   if (problems.length)
     throw new Error(
@@ -46,6 +48,14 @@ export async function playerData(tourPath: string): Promise<PlayerData> {
     )
   const tour = tourSchema.parse(input)
   const root = dirname(tourPath)
+  // A tour is made to be shared: never with a project secret's value in it.
+  const secrets = await secretsAbove(tourPath)
+  const refuse = (what: string, json: string, fix: string) => {
+    const names = secretsInJson(json, secrets)
+    if (names.length)
+      throw new Error(`${what} holds the value of ${names.join(", ")} (a project secret): ${fix}`)
+  }
+  refuse(tourPath, tourText, "take it out of the title, summary and captions")
   const events: PlayerData["events"] = {}
   const shots: PlayerData["shots"] = {}
   const audio: PlayerData["audio"] = {}
@@ -64,6 +74,11 @@ export async function playerData(tourPath: string): Promise<PlayerData> {
   for (const scene of tour.scenes) {
     if (!(scene.events in events)) {
       const recording = await readEvents(join(root, scene.events))
+      refuse(
+        scene.events,
+        recording.json,
+        "record that scene again (`pr2video record` replaces a value it sees with ***), or take it out of the tour",
+      )
       events[scene.events] = gzipSync(shareFonts(recording.json)).toString("base64")
       shots[scene.events] = screenshotMoments(recording.events)
     }

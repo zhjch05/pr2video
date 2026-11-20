@@ -1,8 +1,14 @@
 # Setting the app up in the sandbox
 
 The sandbox is a Linux container (Debian, Node 24 with corepack, Python 3, git, ripgrep, psql, jq,
-curl) with **its own Docker engine**: `docker run` and `docker compose` work inside it, and their
-published ports are on the sandbox's `localhost`. Chromium for Playwright is installed. The head is
+curl). When the project has a Compose file it has **its own Docker engine**: `docker run` and
+`docker compose` work inside it, and their published ports are on the sandbox's `localhost`.
+Without one, it is an ordinary unprivileged container with no engine, and a `docker` command is
+refused. An app that needs Docker for its services but has no Compose file (it runs `docker run`
+from a script, or uses Testcontainers): `sandbox up --services`. If you find out late, `sandbox
+down`, `sandbox up --services` with the same flags, then `sandbox replay --side head` runs the
+recorded steps again. Prefer a service the sandbox can run without Docker (SQLite, an in-process
+mock) when the app supports one: no engine means a much tighter sandbox. Chromium for Playwright is installed. The head is
 checked out at `/work/head` and the base at `/work/base`, both detached and without history (`/src`
 inside is a bare repository of just those commits; nothing of the host is mounted). With `up
 --folder` (or outside git), `/work/head` is instead a copy of the project folder as it was,
@@ -207,7 +213,9 @@ pr2video sandbox exec --record -- 'echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY" >
 
 Output and logs show `***` in place of a value. A command, or a `cp --record` file, that holds a
 value is refused: write `$NAME` instead. Never print a value (`cat .env`, `env`), and do not film
-a screen that shows one. The tour's summary names the secrets the user provided (names only) and
+a screen that shows one: `pr2video record` replaces any value it finds in a recording with `***`
+and says which scene showed it (its screenshots may still show it), and `render` refuses a tour
+that holds one. Change such a scene so the value never appears, and record it again. The tour's summary names the secrets the user provided (names only) and
 the scenes skipped for a missing one.
 
 ### Standing in for an outside service

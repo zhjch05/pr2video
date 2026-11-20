@@ -12,7 +12,16 @@ import {
   scenesFileSchema,
   scenesProblems,
 } from "@pr2video/recorder"
-import { copyOut, docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
+import {
+  copyOut,
+  docker,
+  exec,
+  readSecrets,
+  resolveRecord,
+  runDir,
+  type SandboxRecord,
+  scrubFolder,
+} from "@pr2video/sandbox"
 import type { Tour, TourScene } from "@pr2video/tour"
 
 import { assetPath } from "./assets.ts"
@@ -302,6 +311,8 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   // Only the scenes just recorded are replaced: re-recording one with --only
   // (or from another scenes file) keeps every other scene's recording.
   const recorded: Array<string> = []
+  /** Scenes whose recording showed a secret's value, now `***`. */
+  const leaked: Array<{ scene: string; secrets: Array<string> }> = []
   let signIn: { message: string; screenshot: string | null } | null = null
   if (copied.code === 0) {
     const incomingSummary = (await readJson(join(incoming, "summary.json")).catch(() => null)) as {
@@ -324,6 +335,11 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
       await rename(join(incoming, entry.name), join(local, entry.name))
       recorded.push(entry.name)
     }
+    const secrets = await readSecrets(record.repo)
+    for (const scene of recorded) {
+      const names = await scrubFolder(join(local, scene), secrets)
+      if (names.length) leaked.push({ scene, secrets: names })
+    }
     await rm(incoming, { recursive: true, force: true })
     await writeSummary(local, side)
   }
@@ -342,7 +358,13 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   const scenes = (await sceneResults(local)).filter((r) => recorded.includes(r.scene))
   const ok = result.exitCode === 0 && scenes.length > 0
   if (flags.json)
-    console.log(JSON.stringify({ ok, side, recordings: local, scenes, signIn }, null, 2))
+    console.log(
+      JSON.stringify(
+        { ok, side, recordings: local, scenes, signIn, secretsShown: leaked },
+        null,
+        2,
+      ),
+    )
   else if (signIn) {
     console.error(`\npr2video: ${signIn.message}`)
     if (signIn.screenshot) console.error(`  where it stopped: ${signIn.screenshot}`)
@@ -356,6 +378,11 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
             : ""),
       )
   }
+  if (!flags.json)
+    for (const { scene, secrets } of leaked)
+      console.error(
+        `pr2video: ${scene} showed the value of ${secrets.join(", ")} on the page; the recording holds *** in its place, but its screenshots may show it. Change the scene so the value is never on screen, and record it again`,
+      )
   return ok ? 0 : 1
 }
 
