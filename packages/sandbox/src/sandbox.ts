@@ -6,8 +6,9 @@
  *
  * The host keeps a pull-through registry mirror (Docker Hub pulls are cached
  * across runs) and the pnpm/npm caches as named volumes. The checkout lives on
- * the container's own filesystem: the repository is mounted read-only only to
- * be fetched from, since bind mounts are slow on macOS.
+ * the container's own filesystem. Nothing of the host is mounted: the code in
+ * the sandbox runs as root, so the commits (or the folder's files) are
+ * streamed in instead (source.ts).
  *
  * Every command the agent runs goes through `exec` or `start`; with `record`
  * it lands in the run's journal, which `replay` runs again on the base commit.
@@ -17,7 +18,7 @@
  */
 import { execFile, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -27,14 +28,16 @@ import {
   AWAKE_PROCESSES,
   engineVolume,
   LABEL,
+  limitFlags,
+  limitsFromEnv,
   MIRROR,
   MIRROR_VOLUME,
-  NETWORK,
   removeSandbox,
+  sandboxNetwork,
   sweep,
   USED_FILE,
 } from "./cleanup.ts"
-import { docker, dockerOrThrow, dockerReady } from "./docker.ts"
+import { copyOut, docker, dockerOrThrow, dockerReady } from "./docker.ts"
 import {
   readSecrets,
   refuseValues,
@@ -43,6 +46,7 @@ import {
   syncSecrets,
   WITH_SECRETS,
 } from "./secrets.ts"
+import { commitsRepo, folderFiles, tarInto } from "./source.ts"
 import {
   appendJournal,
   type DataManifest,
@@ -93,26 +97,56 @@ export async function ensureImage(log?: Log): Promise<string> {
 }
 
 /**
- * Creates the shared network. Docker picks its subnet from its default pools,
- * which a machine with many networks has used up ("all predefined address
- * pools have been fully subnetted"); then try a few private /24s of our own.
+ * Creates a sandbox's own network, so sandboxes cannot reach each other.
+ * Docker picks its subnet from its default pools, which a machine with many
+ * networks has used up ("all predefined address pools have been fully
+ * subnetted"); then try a few private /24s of our own.
  */
-async function createNetwork(): Promise<void> {
-  const first = await docker(["network", "create", NETWORK])
+async function createNetwork(name: string, run: string): Promise<void> {
+  if ((await docker(["network", "inspect", name])).code === 0) return
+  const create = (extra: Array<string>) =>
+    docker(["network", "create", "--label", `${LABEL}=${run}`, ...extra, name])
+  const first = await create([])
   if (first.code === 0) return
   if (!/fully subnetted|overlap/i.test(first.stderr))
     throw new Error(`docker network create failed: ${first.stderr.trim()}`)
-  for (let third = 77; third < 97; third++) {
-    const subnet = `10.217.${third}.0/24`
-    const attempt = await docker(["network", "create", "--subnet", subnet, NETWORK])
-    if (attempt.code === 0) return
+  for (let third = 77; third < 127; third++) {
+    if ((await create(["--subnet", `10.217.${third}.0/24`])).code === 0) return
   }
-  throw new Error(`could not create the ${NETWORK} network: ${first.stderr.trim()}`)
+  throw new Error(`could not create the ${name} network: ${first.stderr.trim()}`)
 }
 
-/** The network every sandbox shares with the registry mirror, and the mirror itself. */
+/** How many CPUs Docker has (the Docker Desktop VM's, on a Mac). */
+async function dockerCpus(): Promise<number> {
+  const n = Number((await docker(["info", "--format", "{{.NCPU}}"])).stdout.trim())
+  return n > 0 ? n : 2
+}
+
+/**
+ * Joins the registry mirror to each of the sandbox's networks, so its Docker
+ * engine pulls through it; it is the one thing on them besides the sandbox.
+ */
+async function connectMirror(container: string): Promise<void> {
+  const networks = (
+    await docker([
+      "inspect",
+      "--format",
+      "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}",
+      container,
+    ])
+  ).stdout
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  for (const network of networks) {
+    const joined = await docker(["network", "connect", network, MIRROR])
+    if (joined.code !== 0 && !/already exists|already attached/i.test(joined.stderr))
+      throw new Error(`could not join the registry mirror to ${network}: ${joined.stderr.trim()}`)
+  }
+}
+
+/** The registry mirror, a cache of Docker Hub pulls every sandbox shares. */
 async function ensureMirror(log?: Log): Promise<void> {
-  if ((await docker(["network", "inspect", NETWORK])).code !== 0) await createNetwork()
   const state = await docker(["inspect", "--format", "{{.State.Running}}", MIRROR])
   if (state.stdout.trim() === "true") return
   if (state.code === 0) {
@@ -125,15 +159,14 @@ async function ensureMirror(log?: Log): Promise<void> {
     "-d",
     "--name",
     MIRROR,
-    "--network",
-    NETWORK,
     "--restart",
     "unless-stopped",
     "-e",
     "REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io",
     "-v",
     `${MIRROR_VOLUME}:/var/lib/registry`,
-    "registry:2",
+    // Pinned by digest (`docker buildx imagetools inspect registry:2`).
+    "registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
   ])
 }
 
@@ -434,6 +467,9 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const volume = engineVolume(run)
   await docker(["volume", "rm", "-f", volume])
   await dockerOrThrow(["volume", "create", "--label", `${LABEL}=${run}`, volume])
+  const network = sandboxNetwork(run)
+  await createNetwork(network, run)
+  const cpus = await dockerCpus()
   await dockerOrThrow([
     "run",
     "-d",
@@ -444,8 +480,10 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "sandbox",
     "--label",
     `${LABEL}=${run}`,
+    // Memory, CPUs and processes for everything inside, its services included.
+    ...limitFlags(limitsFromEnv(cpus), cpus),
     "--network",
-    NETWORK,
+    network,
     "-e",
     `PR2VIDEO_REGISTRY_MIRROR=${MIRROR_URL}`,
     "-e",
@@ -456,8 +494,6 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     "COREPACK_HOME=/cache/npm/corepack",
     "-e",
     "CI=1",
-    "-v",
-    `${repo}:/src:ro`,
     "-v",
     "pr2video-pnpm-store:/cache/pnpm",
     "-v",
@@ -477,21 +513,37 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     await removeSandbox(container, run)
     throw new Error(`the sandbox's Docker engine did not start:\n${dockerUp.stdout}`)
   }
+  await connectMirror(container)
 
-  // Just the commits, without history: quick for a big repository, and all a
-  // shallow or partial clone is sure to have. More history is a
-  // \`git fetch /src <ref>\` away.
+  options.log?.(
+    folder
+      ? `copying the folder ${repo}${baseSha ? ` and checking out base ${baseSha.slice(0, 10)}` : ""}`
+      : `checking out ${headSha?.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
+  )
+  // Nothing of the host is mounted (source.ts): the commits come in as a bare
+  // repository at /src holding just them, without history, and a folder as
+  // the files git would keep (tracked and untracked, not ignored).
+  try {
+    if (commits.length) {
+      const bare = await commitsRepo(repo, commits)
+      try {
+        await tarInto(container, bare, "/src")
+      } finally {
+        await rm(bare, { recursive: true, force: true })
+      }
+    }
+    if (folder)
+      await tarInto(container, repo, HEAD_DIR, await folderFiles(repo, isGit, FOLDER_EXCLUDES))
+  } catch (error) {
+    await removeSandbox(container, run)
+    throw error
+  }
   const fetch = (shas: Array<string>) =>
-    `git fetch -q --no-tags --depth 1 --upload-pack='git -c uploadpack.allowAnySHA1InWant=true upload-pack' /src ${shas.join(" ")}`
-  const excludes = FOLDER_EXCLUDES.map((name) => `--exclude=${name}`).join(" ")
+    `git -c safe.directory='*' fetch -q --no-tags --depth 1 /src ${shas.join(" ")}`
   const script = folder
     ? [
         "set -eo pipefail",
         `mkdir -p ${HEAD_DIR}`,
-        // In git, what git would keep (tracked and untracked, not ignored); otherwise all but the usual caches.
-        isGit
-          ? `git -c safe.directory='*' -C /src ls-files -z -co --exclude-standard | tar -C /src --null --ignore-failed-read --warning=no-failed-read ${excludes} -cf - -T - | tar -C ${HEAD_DIR} -xf -`
-          : `tar -C /src ${excludes} -cf - . | tar -C ${HEAD_DIR} -xf -`,
         `cd ${HEAD_DIR}`,
         // A commit of the snapshot, so the app's own git commands work and changes made in the sandbox show in git status.
         "git init -q",
@@ -509,11 +561,6 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
         `git checkout -q --detach ${headSha}`,
         baseSha ? `git worktree add -q --detach ${BASE_DIR} ${baseSha}` : "true",
       ].join("\n")
-  options.log?.(
-    folder
-      ? `copying the folder ${repo}${baseSha ? ` and checking out base ${baseSha.slice(0, 10)}` : ""}`
-      : `checking out ${headSha?.slice(0, 10)}${baseSha ? ` and base ${baseSha.slice(0, 10)}` : ""}`,
-  )
   const checkout = await inside(container, script, { timeoutMs: 600_000 })
   if (checkout.code !== 0) {
     // A sandbox with no checkout is no use, and would block the next `up`.
@@ -637,7 +684,8 @@ export async function saveData(
   )
   if (saved.code !== 0) throw new Error(`saving the data failed: ${saved.stderr.trim()}`)
   const dir = runDir(record.repo, record.run)
-  await dockerOrThrow(["cp", `${record.container}:/tmp/pr2video-data.tgz`, join(dir, "data.tgz")])
+  const copied = await copyOut(record.container, "/tmp/pr2video-data.tgz", join(dir, "data.tgz"))
+  if (copied.code !== 0) throw new Error(`saving the data failed: ${copied.stderr.trim()}`)
   await inside(record.container, "rm -f /tmp/pr2video-data.tgz")
   const manifest: DataManifest = {
     steps: (await readJournal(record.repo, record.run)).length,
@@ -1031,6 +1079,9 @@ async function touch(container: string): Promise<void> {
 export async function wake(record: SandboxRecord, log?: Log): Promise<void> {
   log?.(`waking ${record.container} (it was asleep)`)
   await dockerOrThrow(["start", record.container])
+  // The mirror may have been removed (`prune --all`) or made again since.
+  await ensureMirror(log)
+  await connectMirror(record.container)
   // The entrypoint starts the engine again. One stopped without shutting
   // down (by Docker Desktop, or a crash) left its pid file, which on restart
   // names the new engine itself (the same PID), so it refuses to start:

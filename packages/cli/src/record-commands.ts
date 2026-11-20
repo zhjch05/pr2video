@@ -12,7 +12,7 @@ import {
   scenesFileSchema,
   scenesProblems,
 } from "@pr2video/recorder"
-import { docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
+import { copyOut, docker, exec, resolveRecord, runDir, type SandboxRecord } from "@pr2video/sandbox"
 import type { Tour, TourScene } from "@pr2video/tour"
 
 import { assetPath } from "./assets.ts"
@@ -185,9 +185,12 @@ export async function probeCommand(
   const result = await exec(record, command, { cwd: INSIDE, timeoutMs: 5 * 60_000 })
   const local = join(dir, "probe")
   await rm(local, { recursive: true, force: true })
-  const copied = await docker(["cp", `${record.container}:${out}`, local])
+  const copied = await copyOut(record.container, out, local)
   if (result.exitCode !== 0 || copied.code !== 0) {
-    const reason = (result.stderr || result.stdout).trim().split("\n").slice(-3).join("\n")
+    const reason =
+      result.exitCode === 0
+        ? copied.stderr.trim()
+        : (result.stderr || result.stdout).trim().split("\n").slice(-3).join("\n")
     if (flags.json) console.log(JSON.stringify({ ok: false, error: reason }, null, 2))
     else console.error(`pr2video: the probe failed:\n${reason}`)
     return 1
@@ -291,7 +294,11 @@ export async function recordCommand(flags: RecordFlags): Promise<number> {
   const incoming = join(runDir(record.repo, record.run), "recordings", `.incoming-${side}`)
   await rm(incoming, { recursive: true, force: true })
   await mkdir(local, { recursive: true })
-  const copied = await docker(["cp", `${record.container}:${out}`, incoming])
+  const copied = await copyOut(record.container, out, incoming)
+  if (copied.code !== 0 && copied.stderr.startsWith("refused")) {
+    console.error(`pr2video: ${copied.stderr}`)
+    return 1
+  }
   // Only the scenes just recorded are replaced: re-recording one with --only
   // (or from another scenes file) keeps every other scene's recording.
   const recorded: Array<string> = []

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 import {
   DEFAULT_POLICY,
   dockerBytes,
+  limitFlags,
+  limitsFromEnv,
   parseBytes,
   parseDuration,
   planSweep,
@@ -98,5 +100,37 @@ describe("planSweep", () => {
   it("does nothing with every rule off", () => {
     const off = { idleMs: null, ttlMs: null, keep: null, cacheMaxBytes: null }
     expect(planSweep([box("a", true, 500), box("b", false, 500)], off, NOW)).toEqual([])
+  })
+})
+
+describe("sandbox limits", () => {
+  it("defaults to 8 GB, half of Docker's CPUs (at least 2) and 8192 processes", () => {
+    expect(limitsFromEnv(10, {})).toEqual({ memoryBytes: 8e9, cpus: 5, pids: 8192 })
+    expect(limitsFromEnv(2, {}).cpus).toBe(2)
+  })
+
+  it("takes settings, and off for each", () => {
+    expect(
+      limitsFromEnv(8, {
+        PR2VIDEO_SANDBOX_MEMORY: "4g",
+        PR2VIDEO_SANDBOX_CPUS: "1.5",
+        PR2VIDEO_SANDBOX_PIDS: "off",
+      }),
+    ).toEqual({ memoryBytes: 4e9, cpus: 1.5, pids: null })
+    expect(limitsFromEnv(8, { PR2VIDEO_SANDBOX_MEMORY: "off" }).memoryBytes).toBeNull()
+    expect(() => limitsFromEnv(8, { PR2VIDEO_SANDBOX_PIDS: "1.5" })).toThrow(/whole number/)
+    expect(() => limitsFromEnv(8, { PR2VIDEO_SANDBOX_CPUS: "lots" })).toThrow(/number or off/)
+  })
+
+  it("turns them into docker run flags, leaving out a CPU limit Docker cannot give", () => {
+    expect(limitFlags({ memoryBytes: 8e9, cpus: 5, pids: 8192 }, 10)).toEqual([
+      "--memory",
+      "8000000000",
+      "--cpus",
+      "5",
+      "--pids-limit",
+      "8192",
+    ])
+    expect(limitFlags({ memoryBytes: null, cpus: 4, pids: null }, 4)).toEqual([])
   })
 })

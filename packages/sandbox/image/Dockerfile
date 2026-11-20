@@ -13,7 +13,9 @@
 #     apart from anything a project installs.
 #   - The tools an agent reaches for unprompted: git, ripgrep, psql, python,
 #     jq, curl, lsof.
-FROM node:24-bookworm
+# Pinned by digest, so a moved tag cannot change what runs (bump it on purpose:
+# `docker buildx imagetools inspect node:24-bookworm`).
+FROM node:24-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496
 
 ENV DEBIAN_FRONTEND=noninteractive
 

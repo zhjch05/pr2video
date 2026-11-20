@@ -3,8 +3,8 @@
 The sandbox is a Linux container (Debian, Node 24 with corepack, Python 3, git, ripgrep, psql, jq,
 curl) with **its own Docker engine**: `docker run` and `docker compose` work inside it, and their
 published ports are on the sandbox's `localhost`. Chromium for Playwright is installed. The head is
-checked out at `/work/head` and the base at `/work/base`, both detached and without history (a
-project that needs it, for `git describe` say, can `git fetch /src <ref>` inside). With `up
+checked out at `/work/head` and the base at `/work/base`, both detached and without history (`/src`
+inside is a bare repository of just those commits; nothing of the host is mounted). With `up
 --folder` (or outside git), `/work/head` is instead a copy of the project folder as it was,
 uncommitted files included but not `node_modules`, `.git`, ignored files or similar caches, committed
 once inside so `git status` there shows what setup changed. Shallow and
@@ -32,8 +32,8 @@ until it ends: run it in the background of your own shell if your tool limits ho
 may take, and wait for it to finish before recording the next step (steps are journaled in the
 order they finish).
 
-The host's project folder is only mounted read-only at `/src`, for checking out and copying; never
-work there. `/work/head` and `/work/base` are the sandbox's own copies. To bring in a file you wrote (a seed script, a fixture), copy it:
+Nothing of the host's project folder is mounted: `/work/head` and `/work/base` are the sandbox's own
+copies, and `.env` and other ignored files are not in them. To bring in a file you wrote (a seed script, a fixture), copy it:
 `pr2video sandbox cp --record ./seed.cjs /opt/seed/seed.cjs`, then record a step that runs it.
 `--record` keeps a copy in the run and journals the copy, so replay brings the same file. Keep it out
 of the project's own files and under `.pr2video/<run>/` on the host, in a folder of your own such

@@ -191,7 +191,8 @@ pr2video tour draft [--compare] [--fresh]            A tour.json from the record
 
 ## The sandbox
 
-Your project's code never runs on your machine. Each run gets one Docker container (`--privileged`,
+Your project's code runs in Docker, not directly on your machine (but read [Security](#security)
+before running code you do not trust). Each run gets one Docker container (`--privileged`,
 needed for Docker-in-Docker) with the head at `/work/head` (a commit, or with `--folder` a copy of
 the folder as it is, uncommitted files included) and the base, when there is one, at `/work/base`, its own
 Docker engine for the project's services (`docker compose` works inside), Node 24, Python and
@@ -276,6 +277,64 @@ docker rmi $(docker image ls -q pr2video-sandbox)
 Sandboxes made by pr2video 0.0.8 or earlier kept their services' data in an unnamed volume, which
 `docker rm` without `-v` leaves behind. `docker volume prune` removes unnamed volumes no container
 uses, from every project on the machine, not only pr2video's: check `docker volume ls` first.
+
+### Security
+
+**The sandbox keeps a project from making a mess of your machine; it is not a security boundary
+against code written to escape it.** It is a `--privileged` container (the app's own Docker needs
+that), and privileged code running as root can take over whatever runs Docker: on Linux, your
+computer; with Docker Desktop, its VM, which can see the folders you share with Docker (by default
+your whole home folder). Run pr2video on code you would run yourself anyway: your own work, your
+team's pull requests. For a stranger's pull request, see "Untrusted code" below.
+
+What pr2video does to limit the damage:
+
+- **Nothing of your machine is mounted.** The commits (or, with `--folder`, the files git would
+  keep) are streamed in; `.env` and other ignored files never enter the sandbox. Nothing is
+  published on a host port, and the host's Docker socket is never mounted.
+- **Limits** on memory, CPUs and processes, for everything in the sandbox, its services included
+  (a memory leak or a fork bomb stops there):
+
+  | Setting | Default |
+  |---|---|
+  | `PR2VIDEO_SANDBOX_MEMORY` | `8g` |
+  | `PR2VIDEO_SANDBOX_CPUS` | half of Docker's CPUs, at least 2 |
+  | `PR2VIDEO_SANDBOX_PIDS` | `8192` (processes and threads) |
+
+  Each takes `off`; they apply to sandboxes created after the change. Disk is not limited: the
+  cleanup policy above reclaims it.
+- **Its own network.** A sandbox reaches the internet and the registry mirror, not other sandboxes.
+- **What comes back is checked.** Recordings and saved data are copied out only if they are plain
+  files and folders; a symlink (to `~/.ssh/...`, say) is refused.
+- **The tour page loads nothing from outside.** A Content-Security-Policy keeps the recorded page's
+  images, fonts and stylesheets from reaching any server when someone opens the tour; the replay
+  runs no scripts.
+- **Secrets** go in through stdin, never on a command line, and are scrubbed from all output. Every
+  command in the sandbox can read them, and the sandbox can reach the internet: give test-mode or
+  restricted keys only.
+- Images are pinned by digest.
+
+What it does not do: limit outbound network traffic (installs and the app's own APIs need it), and
+on Docker Desktop the sandbox can reach services on your machine through `host.docker.internal`.
+
+**Tightening it yourself:**
+
+- **Docker Desktop:** in Settings, Resources, cap the VM's CPUs, memory and disk (every sandbox
+  shares them); in Resources, File sharing, share only the folders Docker needs instead of your whole
+  home folder; on a Business plan, turn on Enhanced Container Isolation, which confines privileged
+  containers to their own user namespace.
+- **Linux:** use rootless Docker, or the Sysbox runtime, rather than a root Docker daemon.
+- **Your agent:** keep its permission prompts on. The skill only runs a project's code through
+  `pr2video sandbox`, but a project's files could try to talk an agent into more.
+
+**Untrusted code:** point pr2video at a Docker that is not on your machine. pr2video uses the
+`docker` CLI, so a Docker context or `DOCKER_HOST` sends everything there. pr2video mounts nothing
+from your machine, so a remote engine should work, though we have not tested one yet:
+
+```bash
+docker context create scratch --docker host=ssh://you@throwaway-vm
+DOCKER_CONTEXT=scratch pr2video sandbox up --head <sha>
+```
 
 ## Output
 
