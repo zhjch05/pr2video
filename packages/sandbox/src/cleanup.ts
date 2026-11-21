@@ -91,7 +91,12 @@ const COMPOSE_FILE = /(^|\/)(docker-)?compose(\.[\w.-]+)?\.ya?ml$/
 
 /** Whether any of `files` is a Compose file (`compose.yaml`, `docker-compose.dev.yml`, ...). */
 export function needsServices(files: ReadonlyArray<string>): boolean {
-  return files.some((file) => COMPOSE_FILE.test(file) && !file.split("/").includes("node_modules"))
+  return composeFile(files) !== undefined
+}
+
+/** The first Compose file among `files`, outside dependencies. */
+export function composeFile(files: ReadonlyArray<string>): string | undefined {
+  return files.find((file) => COMPOSE_FILE.test(file) && !file.split("/").includes("node_modules"))
 }
 
 /** A sandbox's own network: it reaches the registry mirror and the internet, not other sandboxes. */

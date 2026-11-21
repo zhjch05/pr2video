@@ -416,6 +416,9 @@ async function recordScene(
   let error: SceneResult["error"] = null
   const total = scene.steps.filter(isCheckpoint).length
 
+  // Wall time, for the log: the recording's own length (durationMs) leaves
+  // out a wait on a page that did not change, such as a base's 404.
+  const began = Date.now()
   try {
     await page.goto(absolute(scene.url), { waitUntil: "load", timeout: 30_000 })
     await settle(page)
@@ -481,7 +484,7 @@ async function recordScene(
   }
   await writeFile(join(dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`)
   log(
-    `${scene.id}: ${result.status} (${checkpoints.length}/${total} checkpoints, ${(result.durationMs / 1000).toFixed(1)}s)`,
+    `${scene.id}: ${result.status} (${checkpoints.length}/${total} checkpoints, ${((Date.now() - began) / 1000).toFixed(1)}s)`,
   )
   return result
 }

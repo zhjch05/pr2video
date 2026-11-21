@@ -15,6 +15,7 @@ import {
   down,
   engineVolume,
   exec,
+  memoryKill,
   processes,
   readJournal,
   replay,
@@ -195,6 +196,24 @@ describe.runIf(enabled)("sandbox", () => {
     }
   }, 600_000)
 
+  it("says when the sandbox's memory limit killed a command", async () => {
+    const repo = await repoWithTwoCommits()
+    const before = process.env.PR2VIDEO_SANDBOX_MEMORY
+    process.env.PR2VIDEO_SANDBOX_MEMORY = "256m"
+    const box = await up({ cwd: repo, base: null, run: `test-oom-${Date.now().toString(36)}` })
+    if (before === undefined) delete process.env.PR2VIDEO_SANDBOX_MEMORY
+    else process.env.PR2VIDEO_SANDBOX_MEMORY = before
+    try {
+      const fine = await exec(box, "false")
+      expect(await memoryKill(box, fine.exitCode)).toBeNull()
+      const hog = await exec(box, "python3 -c 'x = bytes([1]) * (1024 * 1024 * 1024)'")
+      expect(hog.exitCode).toBe(137)
+      expect(await memoryKill(box, hog.exitCode)).toMatch(/ran out of memory \(0\.3 GB\)/)
+    } finally {
+      await down(box)
+    }
+  }, 300_000)
+
   it("mounts nothing of the host, is limited, unprivileged without services, and cannot reach another sandbox", async () => {
     const repo = await repoWithTwoCommits()
     const withCompose = await repoWithTwoCommits()
@@ -214,10 +233,12 @@ describe.runIf(enabled)("sandbox", () => {
       }>
       // No Compose file: an ordinary container, with no engine to run Docker with.
       expect(a.engine).toBe(false)
+      expect(a.why).toBe("no Compose file")
       expect(info?.HostConfig.Privileged).toBe(false)
       await expect(exec(a, "docker ps")).rejects.toThrow(/no Docker engine/)
       // A Compose file: its own engine.
       expect(b.engine).toBe(true)
+      expect(b.why).toBe("docker-compose.yml found")
       expect(info?.Mounts.filter((m) => m.Type === "bind")).toEqual([])
       expect(info?.HostConfig.Memory).toBe(8e9)
       expect(info?.HostConfig.PidsLimit).toBe(8192)

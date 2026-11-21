@@ -30,6 +30,8 @@ export const sandboxRecordSchema = z.object({
   engine: z.boolean().optional(),
   /** The container runtime when not Docker's default (`sysbox-runc`). */
   runtime: z.string().nullable().optional(),
+  /** Why it has a Docker engine or not ("docker-compose.yml found", "--services"). */
+  why: z.string().optional(),
 })
 
 /** Whether `record`'s sandbox has a Docker engine inside. */
