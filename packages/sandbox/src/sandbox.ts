@@ -29,13 +29,13 @@ import {
   AWAKE_CONTAINERS,
   AWAKE_PROCESSES,
   cacheVolumes,
+  composeFile,
   engineVolume,
   LABEL,
   limitFlags,
   limitsFromEnv,
   MIRROR,
   MIRROR_VOLUME,
-  needsServices,
   removeSandbox,
   sandboxNetwork,
   sandboxRuntime,
@@ -136,17 +136,29 @@ async function dockerRuntimes(): Promise<Array<string>> {
  * Whether an app needs services, from its files: a Compose file in the
  * commits (or the folder) means it runs some in Docker.
  */
-async function wantsServices(
+/** How a sandbox is isolated and why, in a line. */
+export function isolationLine(record: Pick<SandboxRecord, "engine" | "runtime" | "why">): string {
+  const why = record.why ? ` (${record.why})` : ""
+  if (record.runtime) return `under ${record.runtime}, with its own Docker engine${why}`
+  return record.engine === false
+    ? `unprivileged, without a Docker engine${why}: \`up --services\` gives it one`
+    : `privileged, with its own Docker engine for the app's services${why}`
+}
+
+/** The Compose file that gives a sandbox services, if the folder or a commit has one. */
+async function servicesFile(
   repo: string,
   commits: ReadonlyArray<string>,
   folder: ReadonlyArray<string> | null,
-): Promise<boolean> {
-  if (folder && needsServices(folder)) return true
+): Promise<string | undefined> {
+  const found = folder ? composeFile(folder) : undefined
+  if (found) return found
   for (const sha of commits) {
     const files = await gitOut(repo, ["ls-tree", "-r", "--name-only", sha]).catch(() => "")
-    if (needsServices(files.split("\n"))) return true
+    const file = composeFile(files.split("\n"))
+    if (file) return file
   }
-  return false
+  return undefined
 }
 
 /**
@@ -548,24 +560,31 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
           (step) => step.kind !== "copy" && RUNS_DOCKER.test(step.command),
         )
       : false
-  const services =
-    options.services ?? (fromEngine || (await wantsServices(repo, commits, folderList)))
+  const compose =
+    options.services === undefined && !fromEngine
+      ? await servicesFile(repo, commits, folderList)
+      : undefined
+  const services = options.services ?? (fromEngine || compose !== undefined)
   // Sysbox runs an engine safely, so a sandbox under it always has one.
   const engine = runtime !== null || services
+  // Why it has an engine or not, for the isolation line.
+  const why = runtime
+    ? "Sysbox is installed"
+    : options.services === true
+      ? "--services"
+      : options.services === false
+        ? "--no-services"
+        : fromEngine
+          ? `run ${options.from} had one`
+          : compose
+            ? `${compose} found`
+            : "no Compose file"
 
   const image = await ensureImage(options.log)
   // Before adding one: sleep, remove and trim what the policy says (cleanup.ts).
   await sweep({ currentImage: image, protect: key, log: options.log })
   if (engine) await ensureMirror(options.log)
-  options.log?.(
-    `starting ${container} ${
-      runtime
-        ? `under ${runtime}, with its own Docker engine`
-        : engine
-          ? "privileged, with its own Docker engine for the app's services"
-          : "unprivileged, without a Docker engine (no Compose file; `up --services` gives it one)"
-    }`,
-  )
+  options.log?.(`starting ${container} ${isolationLine({ engine, runtime, why })}`)
   // The sandbox's own Docker engine keeps its data in a named, labelled
   // volume, so `down` and the sweep can always find it. A leftover from an
   // earlier sandbox of the same run would bring back its old services.
@@ -689,6 +708,7 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
     createdAt: new Date().toISOString(),
     engine,
     runtime,
+    why,
   }
   await writeRecord(record)
   await touch(container)
@@ -824,6 +844,27 @@ export type ExecResult = {
   log: string
   /** Whether the step went into the journal: asked for with `record`, and it succeeded. */
   recorded: boolean
+}
+
+/**
+ * Why a command was killed (exit 137, SIGKILL), when the sandbox's memory
+ * limit did it: the kernel counts the processes it killed for memory in the
+ * sandbox's cgroup. Null for any other exit, or a kill that was not that.
+ */
+export async function memoryKill(
+  record: SandboxRecord,
+  exitCode: number | null,
+): Promise<string | null> {
+  if (exitCode !== 137) return null
+  const read = await inside(
+    record.container,
+    "cat /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.max 2>/dev/null",
+  )
+  const kills = Number(/^oom_kill (\d+)/m.exec(read.stdout)?.[1] ?? 0)
+  if (!kills) return null
+  const max = Number(read.stdout.trim().split("\n").at(-1))
+  const limit = Number.isFinite(max) ? ` (${(max / 1e9).toFixed(1)} GB)` : ""
+  return `the sandbox ran out of memory${limit} and the kernel killed it: make the step use less (skip a type-check, fewer workers), or set PR2VIDEO_SANDBOX_MEMORY higher and start the sandbox again (sandbox down, up, replay)`
 }
 
 export async function exec(
@@ -1104,7 +1145,7 @@ export async function replay(
         detail:
           result.exitCode === 0
             ? `ok in ${result.ms}ms`
-            : `exit ${result.exitCode}: ${result.stderr.slice(-500)}`,
+            : `exit ${result.exitCode}: ${(await memoryKill(record, result.exitCode)) ?? result.stderr.slice(-500)}`,
         log: result.log,
       }
     } else {

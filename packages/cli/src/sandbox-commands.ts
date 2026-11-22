@@ -12,9 +12,11 @@ import {
   exec,
   formatBytes,
   imageTag,
+  isolationLine,
   type JournalEntry,
   list,
   logs,
+  memoryKill,
   moveJournalStep,
   policyFromEnv,
   processes,
@@ -111,14 +113,6 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   npm caches instead of sharing them. PR2VIDEO_RUNTIME=runc does not use Sysbox where it is installed.
 
 ${ENV_HELP}`
-
-/** How the sandbox is isolated, in a line. */
-function isolation(record: SandboxRecord): string {
-  if (record.runtime) return `isolated by ${record.runtime}, with its own Docker engine`
-  return record.engine === false
-    ? "unprivileged, no Docker engine (`up --services` for an app with services in Docker)"
-    : "privileged, with its own Docker engine for the app's services"
-}
 
 function describeStep(step: JournalEntry): string {
   if (step.kind === "copy") return `copy ${step.from} -> ${step.to}`
@@ -237,7 +231,7 @@ export async function sandboxCommand(
             ? `, base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`
             : ", no base"),
       )
-      say(isolation(record))
+      say(isolationLine(record))
       say(`run ${record.run}: write scenes and the tour in ${runFolder(cwd, record)}`)
       return 0
     }
@@ -253,8 +247,10 @@ export async function sandboxCommand(
         timeoutMs: seconds(flags.timeout, 20 * 60),
         onOutput: json ? undefined : (chunk) => process.stdout.write(chunk),
       })
-      answer({ ok: result.exitCode === 0, ...result })
+      const killed = await memoryKill(record, result.exitCode)
+      answer({ ok: result.exitCode === 0, ...result, ...(killed ? { killed } : {}) })
       if (!json && result.timedOut) console.error(`pr2video: timed out after ${result.ms}ms`)
+      if (!json && killed) console.error(`pr2video: ${killed}`)
       if (!json) {
         const steps = result.recorded ? (await readJournal(record.repo, record.run)).length : 0
         console.error(
@@ -402,7 +398,7 @@ export async function sandboxCommand(
       const found = await processes(record)
       answer({ ...record, processes: found })
       say(`${record.container} (run ${record.run}), image ${record.image}`)
-      say(isolation(record))
+      say(isolationLine(record))
       say(`${headLabel(record)} at ${record.head.dir}`)
       if (record.base)
         say(`base ${record.base.sha.slice(0, 10)} (${record.base.ref}) at ${record.base.dir}`)

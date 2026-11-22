@@ -34,6 +34,7 @@ export const sceneResultSchema = z.object({
   status: z.enum(["shown", "partly", "not-reached"]),
   viewport: z.object({ width: z.number(), height: z.number() }),
   /** The recording's length, in its own ms. */
+  /** The recording's length, first event to last: a wait on a page that did not change adds nothing. */
   durationMs: z.number(),
   checkpoints: z.array(recordedCheckpointSchema),
   /** Where it stopped and why, when it did not finish. */
