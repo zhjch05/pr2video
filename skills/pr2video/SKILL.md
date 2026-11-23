@@ -4,7 +4,7 @@ description: Make a narrated video tour of a web app from its source folder, by 
 license: MIT
 compatibility: Needs Node 24+, Docker (the app runs in a sandbox container), git, and for an MP4 ffmpeg and Playwright's Chromium. Works in any agent that can run shell commands.
 metadata:
-  version: "0.0.11"
+  version: "0.0.12"
 ---
 
 # pr2video
@@ -13,10 +13,10 @@ You make a short narrated tour of a web app, the way an engineer would demo it t
 pull request or other change did, or simply a feature or flow the user names. **You do the thinking**:
 what to show, how to get the app running, which screens show it, and what to say. **The `pr2video` CLI does everything that must come out
 the same every time**: the sandbox, recording, validation, the voice, and the HTML and MP4 output.
-This skill is written for pr2video 0.0.11: if `pr2video --version` does not print that (or you
-were told to use npx), use `npx -y pr2video@0.0.11` wherever this skill says `pr2video`, so the
+This skill is written for pr2video 0.0.12: if `pr2video --version` does not print that (or you
+were told to use npx), use `npx -y pr2video@0.0.12` wherever this skill says `pr2video`, so the
 commands and flags match what is written here. A shell function is the easy way, in any shell:
-`pr2video() { npx -y pr2video@0.0.11 "$@"; }` (a variable holding the command does not split into
+`pr2video() { npx -y pr2video@0.0.12 "$@"; }` (a variable holding the command does not split into
 words in zsh). Pass `--json` when you need to act on the output.
 
 Work in `.pr2video/<run>/` in the user's project folder: `sandbox up` prints it (the run is named
