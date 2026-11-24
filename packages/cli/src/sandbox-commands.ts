@@ -106,8 +106,8 @@ export const SANDBOX_HELP = `Sandbox (one Docker container per run; the pull req
   pr2video sandbox prune --all [--dry-run]      Remove everything pr2video keeps in Docker: every sandbox,
                                                 the caches, the mirror, the images
   Cleanup policy (environment variables): PR2VIDEO_SANDBOX_IDLE=1h puts an unused running sandbox
-  to sleep; PR2VIDEO_SANDBOX_TTL=3d removes one asleep that long; PR2VIDEO_KEEP_SANDBOXES=3 keeps at
-  most that many; PR2VIDEO_CACHE_MAX=10g empties a shared cache above that. Each takes "off".
+  to sleep; PR2VIDEO_SANDBOX_TTL=3d removes one asleep that long; PR2VIDEO_KEEP_SANDBOXES=3 removes
+  others asleep 12 h; one a command is using is never touched; PR2VIDEO_CACHE_MAX=10g empties a shared cache above that. Each takes "off".
   Each sandbox is limited to PR2VIDEO_SANDBOX_MEMORY=8g, PR2VIDEO_SANDBOX_CPUS (half of Docker's)
   and PR2VIDEO_SANDBOX_PIDS=8192. PR2VIDEO_CACHE_SCOPE=project gives each project its own pnpm and
   npm caches instead of sharing them. PR2VIDEO_RUNTIME=runc does not use Sysbox where it is installed.
