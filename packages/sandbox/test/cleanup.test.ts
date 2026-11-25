@@ -1,3 +1,7 @@
+import { mkdir, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -5,7 +9,10 @@ import {
   cacheVolumes,
   DEFAULT_POLICY,
   dockerBytes,
+  heldSandboxes,
+  holdSandbox,
   isCacheVolume,
+  KEEP_GRACE_MS,
   limitFlags,
   limitsFromEnv,
   needsServices,
@@ -84,8 +91,8 @@ describe("planSweep", () => {
     const list = [
       box("a", true, 0.1),
       box("b", true, 0.2),
-      box("c", false, 1),
-      box("d", false, 2),
+      box("c", false, 13),
+      box("d", false, 14),
       box("e", true, 0.3),
     ]
     const actions = planSweep(list, { ...DEFAULT_POLICY, keep: 2 }, NOW)
@@ -96,8 +103,28 @@ describe("planSweep", () => {
     ])
   })
 
+  it("keeps one beyond the newest few until it has been unused for a while", () => {
+    const list = [box("a", false, 0.5), box("b", false, 1.5), box("c", false, 30)]
+    const actions = planSweep(list, { ...DEFAULT_POLICY, keep: 1 }, NOW)
+    expect(KEEP_GRACE_MS).toBe(12 * HOUR)
+    // b paused an hour and a half ago (another session, say): it stays.
+    expect(actions.map((a) => `${a.kind} ${a.container}`)).toEqual(["remove pr2video-c"])
+  })
+
+  it("leaves a sandbox another command is using, whatever its age", () => {
+    const list = [box("old", false, 200), box("idle", true, 5), box("other", false, 20)]
+    const actions = planSweep(
+      list,
+      { ...DEFAULT_POLICY, keep: 1 },
+      NOW,
+      undefined,
+      new Set(["pr2video-old", "pr2video-idle"]),
+    )
+    expect(actions.map((a) => `${a.kind} ${a.container}`)).toEqual(["remove pr2video-other"])
+  })
+
   it("never touches the protected run, and counts it first", () => {
-    const list = [box("x", false, 1), box("mine", false, 200)]
+    const list = [box("x", false, 13), box("mine", false, 200)]
     const actions = planSweep(list, { ...DEFAULT_POLICY, keep: 1 }, NOW, "mine")
     expect(actions.map((a) => `${a.kind} ${a.container}`)).toEqual(["remove pr2video-x"])
   })
@@ -105,6 +132,21 @@ describe("planSweep", () => {
   it("does nothing with every rule off", () => {
     const off = { idleMs: null, ttlMs: null, keep: null, cacheMaxBytes: null }
     expect(planSweep([box("a", true, 500), box("b", false, 500)], off, NOW)).toEqual([])
+  })
+})
+
+describe("holding a sandbox", () => {
+  it("lists the ones live processes hold, and clears the dead ones' holds", async () => {
+    const name = `pr2video-test-hold-${process.pid}-${Date.now()}`
+    await holdSandbox(name)
+    const dir = join(homedir(), ".cache", "pr2video", "in-use")
+    await mkdir(dir, { recursive: true })
+    // No process has PID 2^22 + 1 (above every system's limit).
+    const dead = `${name}-dead.${2 ** 22 + 1}`
+    await writeFile(join(dir, dead), "")
+    const held = await heldSandboxes()
+    expect(held.has(name)).toBe(true)
+    expect(held.has(`${name}-dead`)).toBe(false)
   })
 })
 

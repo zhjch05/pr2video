@@ -31,6 +31,7 @@ import {
   cacheVolumes,
   composeFile,
   engineVolume,
+  holdSandbox,
   LABEL,
   limitFlags,
   limitsFromEnv,
@@ -526,6 +527,8 @@ export async function up(options: UpOptions): Promise<SandboxRecord> {
   const kept = existing ? await running(existing.container) : null
   const container = kept !== null && existing ? existing.container : containerName(repo, run)
   const key = dockerKey(container)
+  // Before anything else: no other session's sweep may take it while this one starts or uses it.
+  await holdSandbox(container)
 
   const state = kept !== null ? kept : await running(container)
   if (state !== null) {
@@ -1343,6 +1346,7 @@ export async function resolveRecord(
   const chosen = run ?? (await currentRun(repo))
   if (!chosen) throw new Error("no sandbox yet: start one with `pr2video sandbox up`")
   const record = await readRecord(repo, validRun(chosen))
+  await holdSandbox(record.container)
   const state = await running(record.container)
   if (state === null)
     throw new Error(

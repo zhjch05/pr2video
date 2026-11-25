@@ -11,7 +11,10 @@
  * So: a finished sandbox sleeps (stopped, its memory freed, its disk kept,
  * any command wakes it); one left running and unused for an hour is put to
  * sleep; one asleep for three days, or beyond the newest three, is removed;
- * an image no sandbox uses is removed; a cache over 10 GB is emptied. The
+ * an image no sandbox uses is removed; a cache over 10 GB is emptied. One
+ * a pr2video command is using right now (`holdSandbox`) is never put to sleep
+ * or removed, whatever its clock says: several sessions on one machine share
+ * the sandboxes, and each one's sweep must leave the others' alone. The
  * sweep runs when a sandbox starts or sleeps - there is no daemon - and the
  * limits come from environment variables (`policyFromEnv`). A run's setup
  * journal, saved data and tour live in the project's `.pr2video/` folder,
@@ -19,7 +22,8 @@
  */
 
 import { createHash } from "node:crypto"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { rmSync } from "node:fs"
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
@@ -260,9 +264,19 @@ export function formatBytes(bytes: number | undefined): string {
 }
 
 /** Every pr2video sandbox on this machine, with when each was last used. */
-export async function sandboxes(options: { sizes?: boolean } = {}): Promise<Array<SandboxInfo>> {
+export async function sandboxes(
+  options: { sizes?: boolean; only?: string } = {},
+): Promise<Array<SandboxInfo>> {
   const names = (
-    await dockerOrThrow(["ps", "-a", "--filter", `label=${LABEL}`, "--format", "{{.Names}}"])
+    await dockerOrThrow([
+      "ps",
+      "-a",
+      "--filter",
+      `label=${LABEL}`,
+      ...(options.only ? ["--filter", `name=^${options.only}$`] : []),
+      "--format",
+      "{{.Names}}",
+    ])
   )
     .split("\n")
     .filter(Boolean)
@@ -330,25 +344,33 @@ export type Action =
   | { kind: "remove"; container: string; run: string; reason: string }
 
 /**
+ * The newest few are kept; past them, an asleep one goes only once it has
+ * been unused this long, so a session that paused (for lunch, or for the
+ * user) finds its sandbox again while other sessions start theirs.
+ */
+export const KEEP_GRACE_MS = 12 * 3_600_000
+
+/**
  * What the policy does to these sandboxes now. `protect` is the run being
- * started or used: never put to sleep or removed, and counted first.
+ * started or used, and `inUse` the containers other pr2video commands are
+ * using (`heldSandboxes`): never put to sleep or removed, and counted first.
  */
 export function planSweep(
   list: ReadonlyArray<SandboxInfo>,
   policy: Policy,
   now: number,
   protect?: string | undefined,
+  inUse: ReadonlySet<string> = new Set(),
 ): Array<Action> {
   const actions: Array<Action> = []
   const ago = (s: SandboxInfo) => describeAge(now - s.lastUsed.getTime())
-  // Newest first, the protected one ahead of all.
+  const kept = (s: SandboxInfo) => s.run === protect || inUse.has(s.container)
+  // Newest first, the protected and in-use ones ahead of all.
   const ordered = [...list].sort(
-    (a, b) =>
-      Number(b.run === protect) - Number(a.run === protect) ||
-      b.lastUsed.getTime() - a.lastUsed.getTime(),
+    (a, b) => Number(kept(b)) - Number(kept(a)) || b.lastUsed.getTime() - a.lastUsed.getTime(),
   )
   for (const [index, s] of ordered.entries()) {
-    if (s.run === protect) continue
+    if (kept(s)) continue
     const idle = now - s.lastUsed.getTime()
     const sleeping = !s.running || (policy.idleMs !== null && idle > policy.idleMs)
     if (sleeping && policy.ttlMs !== null && idle > policy.ttlMs) {
@@ -360,7 +382,7 @@ export function planSweep(
       })
       continue
     }
-    if (sleeping && policy.keep !== null && index >= policy.keep) {
+    if (sleeping && policy.keep !== null && index >= policy.keep && idle > KEEP_GRACE_MS) {
       actions.push({
         kind: "remove",
         container: s.container,
@@ -373,6 +395,51 @@ export function planSweep(
       actions.push({ kind: "sleep", container: s.container, reason: `unused for ${ago(s)}` })
   }
   return actions
+}
+
+/** Where commands note the sandbox they are using: one file per container and process. */
+const HOLDS = join(homedir(), ".cache", "pr2video", "in-use")
+/** A hold older than this is from a process that died without cleaning up (and whose PID came back). */
+const HOLD_MAX_MS = 24 * 3_600_000
+const held = new Set<string>()
+
+/**
+ * Notes that this process is using `container` until it exits, so no
+ * session's sweep puts it to sleep or removes it meanwhile.
+ */
+export async function holdSandbox(container: string): Promise<void> {
+  const file = join(HOLDS, `${container}.${process.pid}`)
+  if (held.has(file)) return
+  await mkdir(HOLDS, { recursive: true })
+  await writeFile(file, new Date().toISOString())
+  if (!held.size)
+    process.once("exit", () => {
+      for (const f of held) rmSync(f, { force: true })
+    })
+  held.add(file)
+}
+
+/** The containers a live pr2video process is using; holds of processes gone are cleared. */
+export async function heldSandboxes(now = Date.now()): Promise<Set<string>> {
+  const found = new Set<string>()
+  for (const name of await readdir(HOLDS).catch(() => [] as Array<string>)) {
+    const match = /^(.+)\.(\d+)$/.exec(name)
+    const file = join(HOLDS, name)
+    const age = now - ((await stat(file).catch(() => null))?.mtimeMs ?? 0)
+    if (match && age < HOLD_MAX_MS && alive(Number(match[2]))) found.add(match[1] as string)
+    else await rm(file, { force: true })
+  }
+  return found
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: alive, but another user's.
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
 }
 
 function describeAge(ms: number): string {
@@ -458,7 +525,22 @@ export async function sweep(options: {
   try {
     const policy = options.policy ?? policyFromEnv()
     const list = await sandboxes()
-    for (const action of planSweep(list, policy, Date.now(), options.protect)) {
+    const holds = await heldSandboxes()
+    for (const planned of planSweep(list, policy, Date.now(), options.protect, holds)) {
+      // The list can be minutes old by now (putting one to sleep takes a
+      // while), and another session may have woken or started using this
+      // one since: act only on one that has not changed.
+      const listed = list.find((s) => s.container === planned.container)
+      const [now] = await sandboxes({ only: planned.container })
+      if (
+        !listed ||
+        !now ||
+        now.running !== listed.running ||
+        now.lastUsed.getTime() !== listed.lastUsed.getTime() ||
+        (await heldSandboxes()).has(planned.container)
+      )
+        continue
+      const action = planned
       say(
         `${dry ? "would " : ""}${action.kind === "sleep" ? "put to sleep" : "remove"} ${action.container}: ${action.reason}`,
       )
@@ -486,8 +568,11 @@ export async function sweep(options: {
     }
 
     // Engine volumes whose sandbox is gone.
+    // A sandbox another session is starting has its volume and network before
+    // its container, so the held ones count too.
     const runs = new Set(remaining.map((s) => s.run))
     if (options.protect) runs.add(options.protect)
+    for (const container of await heldSandboxes()) runs.add(container.replace(/^pr2video-/, ""))
     const volumes = (await docker(["volume", "ls", "-q", "--filter", `label=${LABEL}`])).stdout
       .split("\n")
       .filter((name) => name && ![...runs].some((run) => engineVolume(run) === name))

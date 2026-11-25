@@ -239,8 +239,10 @@ services and servers started again as they were. The rest happens whenever a san
 to sleep (there is no background job):
 
 - a sandbox left running and unused for **1 hour** is put to sleep;
-- one asleep for **3 days** is removed, and so is any asleep beyond the newest **3** (one still
-  running is never removed);
+- one asleep for **3 days** is removed, and so is one asleep beyond the newest **3** once unused
+  for **12 hours** (one still running is never removed);
+- a sandbox a pr2video command is using right now is never put to sleep or removed, so several
+  sessions on one machine can each work in their own sandbox without one's cleanup taking another's;
 - sandbox images no sandbox uses, and volumes whose sandbox is gone, are removed;
 - a shared cache above **10 GB** is emptied, at most once a day and only while no sandbox runs.
 
@@ -249,7 +251,7 @@ to sleep (there is no background job):
 ```bash
 export PR2VIDEO_SANDBOX_IDLE=20m      # sleep sooner (default 1h)
 export PR2VIDEO_SANDBOX_TTL=1d        # remove sooner (default 3d); 0 or off: never
-export PR2VIDEO_KEEP_SANDBOXES=1      # keep fewer (default 3); 0 keeps none asleep
+export PR2VIDEO_KEEP_SANDBOXES=1      # keep fewer (default 3); 0 keeps none asleep past 12 hours
 export PR2VIDEO_CACHE_MAX=4g          # smaller caches, slower installs (default 10g)
 ```
 
